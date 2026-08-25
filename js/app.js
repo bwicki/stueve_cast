@@ -2,7 +2,7 @@
 // Loaded last; relies on the globals from core.js, info.js, analytics.js,
 // draw.js, models.js and openmeteo.js (classic scripts sharing one scope).
 
-const APP_VERSION = 'v0.11.2 (2026-08-25)';
+const APP_VERSION = 'v0.11.5 (2026-08-25)';
 const MAX_TOTAL = 3; // models drawn at once (primary + comparisons)
 const SESSION_KEY = 'sc_session_v2';
 const SETTINGS_KEY = 'sc_settings_v1';
@@ -104,7 +104,8 @@ function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&'
 // resolves {button, value}; Escape / backdrop = {button:'cancel'}
 function appDialog(opts){
   return new Promise(resolve=>{
-    const ov = $('dialogOverlay'), inp = $('dialogInput'), acts = $('dialogActions');
+    const ov = $('sideDialog'), inp = $('dialogInput'), acts = $('dialogActions');
+    if(!state.sideOpen) applySide(true); // the dialog lives in the left column
     $('dialogTitle').textContent = opts.title || '';
     $('dialogText').innerHTML = opts.text || '';
     $('dialogText').style.display = opts.text ? 'block' : 'none';
@@ -121,7 +122,7 @@ function appDialog(opts){
     }
     buttons.forEach(b=>{
       const el = document.createElement('button');
-      el.className = b.primary ? 'primary-btn small' : 'reset-btn';
+      el.className = b.primary ? 'primary-btn' : 'reset-btn';
       el.textContent = b.label;
       el.addEventListener('click', ()=>finish(b.value));
       acts.appendChild(el);
@@ -131,8 +132,8 @@ function appDialog(opts){
       else if(e.key==='Enter' && opts.input){ e.stopPropagation(); const pb = buttons.find(b=>b.primary); if(pb) finish(pb.value); }
     }
     document.addEventListener('keydown', onKey, true);
-    ov.onclick = e=>{ if(e.target===ov) finish('cancel'); };
-    ov.style.display = 'flex';
+    ov.style.display = 'block';
+    ov.scrollIntoView && ov.scrollIntoView({block:'nearest'});
     if(opts.input) setTimeout(()=>{ inp.focus(); inp.select(); }, 30);
   });
 }

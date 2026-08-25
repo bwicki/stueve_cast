@@ -48,9 +48,9 @@
         <div class="map-wrap">
           <div id="pickMap"></div>
           <div class="crosshair" aria-hidden="true">
-            <svg viewBox="0 0 44 44" width="44" height="44">
-              <g fill="none" stroke="#fff" stroke-opacity=".9" stroke-width="3.6" stroke-linecap="round"><circle cx="22" cy="22" r="11"/><path d="M22 2v7M22 35v7M2 22h7M35 22h7"/></g>
-              <g fill="none" stroke="#d98a1f" stroke-width="1.6" stroke-linecap="round"><circle cx="22" cy="22" r="11"/><path d="M22 2v7M22 35v7M2 22h7M35 22h7"/></g>
+            <svg viewBox="0 0 52 52" width="52" height="52">
+              <g fill="none" stroke="#fff" stroke-opacity=".96" stroke-width="5.2" stroke-linecap="round"><circle cx="26" cy="26" r="12"/><path d="M26 12v-12M26 40v12M12 26h-12M40 26h12"/></g>
+              <g fill="none" stroke="#b8650f" stroke-width="2.6" stroke-linecap="round"><circle cx="26" cy="26" r="12"/><path d="M26 12v-12M26 40v12M12 26h-12M40 26h12"/></g>
             </svg>
           </div>
         </div>
@@ -63,6 +63,12 @@
           </div>
           <button class="reset-btn icon-btn" id="favBtn" title="Save this place">☆</button>
           <button class="primary-btn small" id="loadBtn" title="Load the profile for the crosshair position">Load</button>
+        </div>
+        <div id="sideDialog" class="side-dialog" style="display:none;">
+          <div class="sd-title" id="dialogTitle"></div>
+          <div class="sd-text" id="dialogText"></div>
+          <input id="dialogInput" type="text" class="sd-input" autocomplete="off" style="display:none;">
+          <div class="sd-actions" id="dialogActions"></div>
         </div>
       </div>
 
@@ -106,6 +112,7 @@
         <div class="head-actions">
           <button class="reset-btn icon-btn" id="inspectLockBtn" title="Lock touch inspect mode (one finger reads values, no page scroll)">✛</button>
           <button class="reset-btn icon-btn" id="shareBtn" title="Share link (L)">🔗</button>
+          <button class="reset-btn icon-btn" id="exportPngBtn" title="Export / share chart as PNG (E)">⬇</button>
           <button class="reset-btn icon-btn" id="printBtn" title="Print (P)">🖨</button>
           <div class="menu-wrap">
             <button class="reset-btn icon-btn" id="settingsBtn" title="Settings" aria-haspopup="true">☰</button>
@@ -172,7 +179,6 @@
               <canvas id="chartCursorOverlay" style="position:absolute;top:0;left:0;pointer-events:none;"></canvas>
               <div id="tooltip"></div>
               <div id="windPanelHandle" title="Drag to give the wind panel or the temperature plot more room · double-tap resets"><div class="grip"></div></div>
-              <button class="reset-btn export-icon-btn" id="exportPngBtn" title="Export / share PNG (E)">⬇</button>
             </div>
           </div>
           <div class="legend" id="legend"></div>
@@ -239,15 +245,6 @@
     <button id="infoModalPdf" title="Print / save as PDF">⬇</button>
     <button id="infoModalClose" title="Close">✕</button>
     <div id="infoModalContent"></div>
-  </div>
-</div>
-
-<div id="dialogOverlay" class="modal-overlay" style="display:none;">
-  <div class="modal-box dialog">
-    <div class="modal-title" id="dialogTitle"></div>
-    <div class="modal-text" id="dialogText"></div>
-    <input id="dialogInput" type="text" class="dialog-input" autocomplete="off" style="display:none;">
-    <div class="modal-actions" id="dialogActions"></div>
   </div>
 </div>
 

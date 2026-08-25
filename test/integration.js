@@ -145,10 +145,10 @@ const sleep = ms => new Promise(r=>setTimeout(r, ms));
   check(d.getElementById('loadBtn').textContent === 'Loaded', 'load button shows loaded state');
   // favorites: in-app dialog, dropdown list
   d.getElementById('favBtn').click(); await sleep(60);
-  check(d.getElementById('dialogOverlay').style.display === 'flex' && d.getElementById('dialogInput').value === 'Pizol/Switzerland', 'in-app save dialog with prefilled name');
+  check(d.getElementById('sideDialog').style.display === 'block' && d.getElementById('dialogInput').value === 'Pizol/Switzerland', 'inline save dialog in the left column with prefilled name');
   d.getElementById('dialogInput').value = 'Pizol launch site';
   Array.from(d.querySelectorAll('#dialogActions button')).find(b=>b.textContent==='Save').click(); await sleep(60);
-  check(d.getElementById('dialogOverlay').style.display === 'none' && d.getElementById('favBtn').textContent === '★', 'place saved, star filled');
+  check(d.getElementById('sideDialog').style.display === 'none' && d.getElementById('favBtn').textContent === '★', 'place saved, star filled');
   d.getElementById('favMenuBtn').click(); await sleep(30);
   check(d.querySelectorAll('#searchResults .sr-item.fav').length === 1 && d.querySelector('#searchResults .sr-item.fav').textContent.includes('Pizol launch site'), 'saved places dropdown lists the favorite');
   d.body.click();

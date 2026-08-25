@@ -804,10 +804,12 @@ function draw(rows){
   for(let v=0; v<=sMax; v+=sLabelStep){
     ctx.fillText(String(v), speedScale(v), pad.top+plotH+6);
   }
+  // panel title below the axis numbers, on the same baseline as the
+  // "Temperature (°C)" title of the main plot, centred under the curve
   ctx.fillStyle = cWindLine;
-  ctx.font = '10px IBM Plex Mono, monospace';
-  ctx.textBaseline='bottom';
-  ctx.fillText((compact ? 'Wind (' : 'Windspeed (')+speedUnitLabel()+')', speedX0+speedW/2, pad.top-6);
+  ctx.font = compact ? '10px Inter, sans-serif' : '11.5px Inter, sans-serif';
+  ctx.textBaseline='top';
+  ctx.fillText((compact ? 'Wind (' : 'Windspeed (')+speedUnitLabel()+')', speedX0+speedW/2, L.cssHeight-14);
 
   // ---------- Wind barb column ----------
   ctx.strokeStyle = cLine;
