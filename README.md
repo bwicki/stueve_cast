@@ -35,6 +35,7 @@ js/analytics.js          S2 analytics strip, traffic-light comments, info modal
 js/models.js             model catalog (Open-Meteo keys, coverage boxes, level lists, cycle/latency, default rule)
 js/openmeteo.js          Open-Meteo requests with self-healing variable lists, adapter model → S2 rows,
                          geocoding, elevation/time zone, reverse geocoding
+js/blend.js              weighted mean of the shown model profiles ("avg." chip): weight = 1/√grid km ÷ (1 + run age/6 h)
 js/app.js                cockpit logic: map with crosshair, one time slider (day chips, ‹ ›, play, native picker),
                          model list + dynamic chips, auto-load, touch inspect & pinch zoom, wind-handle drag,
                          settings menu, share link/QR, PNG export, print, session/favorites, service worker
@@ -59,10 +60,12 @@ which the S2 chart already knew how to draw as dashed comparison curves.
 2. **Time** – one slider over every hour up to the longest model horizon (16 days), in the location's
    time zone: day chips jump, ‹ › step, ▶ animates, the date label opens a native date/time picker.
 3. **Models** – the left list shows every catalog model with coverage, grid, levels, estimated run and
-   horizon (★ = primary). Chips above the chart show the models that cover the place *and* the chosen
-   hour; they appear and disappear as the slider enters or leaves a model's horizon. Tap a chip to add a
-   model (fetched on demand), × to remove it, tap a comparison chip to make it primary. Default = finest
-   grid with the newest run; up to four models at once.
+   horizon (★ = primary), ordered for the chosen hour: models that cover the hour first, finest grid on
+   top; the order follows the slider. Every manual time change clears the selection, so the model is
+   picked anew for that hour (▶ playback keeps the selection). Chips above the chart show the models that
+   cover the place *and* the hour; tap to add (fetched on demand), × to remove, tap a comparison chip to
+   make it primary. Up to three models at once; with two or more the **avg.** chip draws their weighted
+   mean as the primary curve (individual models become dashed comparisons, analytics describe the blend).
 4. **Fetch** – one request per model for its whole horizon (`timezone=UTC`, `timeformat=unixtime`,
    `wind_speed_unit=ms`), plus one "extras" request (CAPE, LI, CIN, freezing level, PBL height,
    80/120/180 m winds, vertical velocity). Variables a model does not support are removed automatically

@@ -1,19 +1,19 @@
 /* ---- StueveCast cockpit layout on top of the S2 base stylesheet ---- */
-:root{ --safe-b: env(safe-area-inset-bottom, 0px); --safe-t: env(safe-area-inset-top, 0px); --topbar-h: 46px; --side-w: 322px; --right-w: 302px; }
+:root{ --safe-b: env(safe-area-inset-bottom, 0px); --safe-t: env(safe-area-inset-top, 0px); --topbar-h: 88px; --side-w: 322px; --right-w: 302px; }
 html{ -webkit-text-size-adjust:100%; }
 html, body{ height:100%; }
 body{ padding-top:var(--safe-t); overflow:hidden; }
 .app{ max-width:none; padding:0; height:100%; display:flex; flex-direction:column; }
 .dim{ color:var(--text-dim); font-weight:400; }
 
-/* header */
-header.topbar{ display:flex; align-items:center; justify-content:space-between; gap:12px; height:var(--topbar-h); padding:0 12px;
+/* header: the S2 title block (eyebrow · title · subtitle) left, logo right */
+header.topbar{ display:flex; flex-direction:row; align-items:center; justify-content:space-between; gap:16px; height:auto; padding:8px 14px 8px;
   border-bottom:1px solid var(--line); margin:0; flex-shrink:0; }
-.brand{ display:flex; align-items:baseline; gap:10px; min-width:0; }
-.brand .eyebrow{ font-family:var(--mono); font-size:9px; letter-spacing:.12em; text-transform:uppercase; color:var(--amber); white-space:nowrap; }
-.brand h1{ font-size:18px; margin:0; font-weight:600; letter-spacing:-.01em; color:var(--text-strong); white-space:nowrap; }
-.subtitle{ font-family:var(--mono); font-size:10.5px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
-.header-logo{ height:32px; flex-shrink:0; }
+.title-block{ min-width:0; }
+.title-block .eyebrow{ margin-bottom:3px; }
+.title-block h1{ font-size:22px; }
+.title-block p{ margin:3px 0 0; font-family:var(--mono); font-size:11.5px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.header-logo{ height:46px; flex-shrink:0; }
 .print-only{ display:none; }
 
 /* workspace: three columns */
@@ -67,7 +67,7 @@ body.side-collapsed #sidePanel{ display:none; }
 .sr-empty{ padding:8px 10px; }
 .map-wrap{ position:relative; height:clamp(170px, 27vh, 320px); border:1px solid var(--line); border-radius:8px; overflow:hidden; background:var(--panel-2); }
 #pickMap{ position:absolute; inset:0; }
-.crosshair{ position:absolute; left:50%; top:50%; width:40px; height:40px; margin:-20px 0 0 -20px; pointer-events:none; z-index:800; filter:drop-shadow(0 0 2px rgba(0,0,0,.6)); }
+.crosshair{ position:absolute; left:50%; top:50%; width:52px; height:52px; margin:-26px 0 0 -26px; pointer-events:none; z-index:800; }
 .place-card{ display:flex; align-items:center; gap:6px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:5px 6px 5px 9px; margin-top:6px; }
 .place-main{ flex:1; min-width:0; }
 .place-name{ font-family:var(--mono); font-size:12.5px; font-weight:600; color:var(--text-strong); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -78,7 +78,8 @@ body.side-collapsed #sidePanel{ display:none; }
 .time-readout .lead{ font-size:11px; color:var(--amber); }
 .time-readout .utc{ font-size:10.5px; color:var(--text-dim); }
 .time-picker{ position:absolute; left:0; top:0; width:1px; height:1px; opacity:0; pointer-events:none; }
-.time-row{ display:flex; align-items:center; gap:4px; }
+.time-row{ display:flex; align-items:center; gap:3px; }
+.time-row .icon-btn.tiny{ width:24px; height:24px; font-size:13px; }
 .time-slider-wrap{ flex:1; position:relative; padding-bottom:14px; min-width:0; }
 #timeSlider{ width:100%; margin:0; accent-color:var(--amber); height:30px; }
 .time-ticks{ position:absolute; left:8px; right:8px; bottom:0; height:13px; pointer-events:none; }
@@ -88,6 +89,7 @@ body.side-collapsed #sidePanel{ display:none; }
 .model-row{ display:flex; gap:8px; align-items:center; padding:4px 6px 4px 8px; border-bottom:1px solid var(--line); }
 .model-row:last-child{ border-bottom:none; }
 .model-row.off{ opacity:.45; }
+.model-row.later{ opacity:.6; }
 .model-row input[type=checkbox]{ width:17px; height:17px; margin:0; accent-color:var(--amber); flex-shrink:0; }
 .mr-body{ display:flex; flex-direction:column; gap:1px; min-width:0; flex:1; cursor:pointer; }
 .mr-name{ font-family:var(--mono); font-size:12px; font-weight:600; color:var(--text-strong); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -99,8 +101,11 @@ body.side-collapsed #sidePanel{ display:none; }
 
 /* centre column */
 .toolbar{ display:flex; align-items:center; gap:8px; margin-bottom:4px; flex-shrink:0; }
-#modelChips{ flex:1; min-width:0; margin:0; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:thin; padding-bottom:2px; }
-.head-actions{ display:flex; gap:5px; flex-shrink:0; }
+.toolbar{ align-items:flex-start; }
+#modelChips{ flex:1; min-width:0; margin:0; flex-wrap:wrap; gap:4px; }
+.head-actions{ display:flex; gap:5px; flex-shrink:0; margin-left:auto; }
+.chip.avg{ border-style:dotted; border-color:var(--amber); color:var(--amber); font-weight:700; }
+.chip.avg.primary{ border-style:solid; }
 .menu-wrap{ position:relative; }
 .menu{ position:absolute; right:0; top:40px; width:296px; background:var(--panel-2); border:1px solid var(--line); border-radius:8px;
   box-shadow:0 10px 30px rgba(0,0,0,.35); z-index:1200; padding:4px 0; }
@@ -211,9 +216,8 @@ body.side-collapsed #sidePanel{ display:none; }
   html, body{ overflow:visible !important; height:auto !important; }
   .app{ display:block !important; height:auto !important; padding:0 !important; }
   header.topbar{ height:auto !important; padding:0 0 4px !important; margin-bottom:6px !important; }
-  .brand{ flex-wrap:wrap; gap:6px; }
-  .brand h1{ font-size:14px; }
-  .subtitle{ font-size:8.5px; white-space:normal; }
+  .title-block h1{ font-size:14px; }
+  .title-block p{ font-size:8.5px; white-space:normal; }
   .print-only{ display:inline; font-size:7.5px; color:#555; word-break:break-all; }
   .header-logo{ height:30px; }
   #workspace{ display:block !important; height:auto !important; overflow:visible !important; }

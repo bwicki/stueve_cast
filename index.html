@@ -23,10 +23,10 @@
 <div class="app">
 
   <header class="topbar">
-    <div class="brand">
-      <span class="eyebrow">Model sounding diagram</span>
+    <div class="title-block">
+      <div class="eyebrow">Model sounding diagram</div>
       <h1>StueveCast</h1>
-      <span id="subtitle" class="subtitle">pick a place, then load a profile · <span id="versionStamp"></span></span>
+      <p id="subtitle">pick a place, then load a profile · <span id="versionStamp"></span></p>
       <span id="printUrl" class="print-only"></span>
     </div>
     <img class="header-logo" alt="Wicki Partners Ballonteam" src="img/wicki-logo.png">
@@ -48,13 +48,19 @@
         <div class="map-wrap">
           <div id="pickMap"></div>
           <div class="crosshair" aria-hidden="true">
-            <svg viewBox="0 0 40 40" width="40" height="40"><circle cx="20" cy="20" r="9" fill="none" stroke="#f0a63d" stroke-width="2"/><path d="M20 2v10M20 28v10M2 20h10M28 20h10" stroke="#f0a63d" stroke-width="2"/><circle cx="20" cy="20" r="1.6" fill="#f0a63d"/></svg>
+            <svg viewBox="0 0 52 52" width="52" height="52">
+              <g fill="none" stroke="#000" stroke-opacity=".85" stroke-width="7" stroke-linecap="round"><circle cx="26" cy="26" r="12"/><path d="M26 3v10M26 39v10M3 26h10M39 26h10"/></g>
+              <g fill="none" stroke="#fff" stroke-width="4.2" stroke-linecap="round"><circle cx="26" cy="26" r="12"/><path d="M26 3v10M26 39v10M3 26h10M39 26h10"/></g>
+              <g fill="none" stroke="#f0a63d" stroke-width="2.4" stroke-linecap="round"><circle cx="26" cy="26" r="12"/><path d="M26 3v10M26 39v10M3 26h10M39 26h10"/></g>
+              <circle cx="26" cy="26" r="2.8" fill="#f0a63d" stroke="#000" stroke-width="1.2"/>
+            </svg>
           </div>
         </div>
         <div class="place-card">
           <div class="place-main">
             <div id="placeName" class="place-name">Map centre</div>
             <div id="placeCoords" class="place-coords"></div>
+            <div id="placeElev" class="place-coords"></div>
             <div id="placeStatus" class="place-status"></div>
           </div>
           <button class="reset-btn icon-btn" id="favBtn" title="Save / remove favorite">☆</button>
@@ -72,20 +78,20 @@
         </div>
         <div id="dayChips" class="chip-row scroll"></div>
         <div class="time-row">
-          <button class="reset-btn icon-btn" id="stepBack" title="Previous hour (←)">‹</button>
-          <button class="reset-btn icon-btn" id="playBtn" title="Play / pause (space)">▶</button>
+          <button class="reset-btn icon-btn tiny" id="playBtn" title="Play / pause (space) — playback keeps the model selection">▶</button>
+          <button class="reset-btn icon-btn tiny" id="stepBack" title="Previous hour (←)">‹</button>
           <div class="time-slider-wrap">
             <input type="range" id="timeSlider" min="0" max="1" value="0" step="1" title="Forecast hour">
             <div id="timeTicks" class="time-ticks"></div>
           </div>
-          <button class="reset-btn icon-btn" id="stepFwd" title="Next hour (→)">›</button>
+          <button class="reset-btn icon-btn tiny" id="stepFwd" title="Next hour (→)">›</button>
         </div>
       </div>
 
       <div class="sp-section">
         <div class="section-title">Models <span id="modelSummary" class="dim"></span></div>
         <div id="modelList" class="model-list"></div>
-        <div class="model-foot">Sorted by grid spacing. ★ = primary model (drives the analytics); other checked models are dashed comparison curves. Up to four at once. Models are also listed as chips above the chart while the chosen hour lies inside their horizon.</div>
+        <div class="model-foot">Models that cover the chosen hour are listed first, finest grid on top; the order follows the time slider. Every time change clears the selection — pick the model for that hour anew. ★ = primary model (drives the analytics), other checked models are dashed comparison curves, up to three at once. With two or more models the <b>avg.</b> chip above the chart blends them (weighted by grid spacing and run age).</div>
       </div>
     </aside>
     <div id="sideHandle" title="Hide / show the place, time and model panel"><span>‹</span></div>
@@ -142,8 +148,8 @@
       </div>
       <div id="profileNotice" class="notice" style="display:none;"></div>
       <div id="emptyState" class="empty-state">
-        <div class="empty-title">No profile loaded</div>
-        <div>Move the map so the crosshair sits on your site (or search a place, or use ◎ for your position), then press <b>Load</b>. Models that cover the place and hour appear as chips above the chart; the ☰ menu holds units and display options.</div>
+        <div class="empty-title" id="emptyTitle">No profile loaded</div>
+        <div id="emptyText">Move the map so the crosshair sits on your site (or search a place, or use ◎ for your position), then press <b>Load</b>. Models that cover the place and hour appear as chips above the chart; the ☰ menu holds units and display options.</div>
       </div>
 
       <div id="dataView" style="display:none;">
@@ -268,7 +274,8 @@
       <p><b>License:</b> custom, not open-source. Using the app is permitted; modifying, redistributing, or publishing a derivative version needs the copyright holder's prior written permission and must keep attribution.</p>
       <p>StueveCast draws Stüve, Emagram and Skew-T diagrams from numerical weather model profiles for any place and forecast hour, using the diagram and the fourteen analytics fields of the S2 Radiosonde Sounding Diagram tool. Left panel: place (map crosshair, search, position), valid time and the model list; ‹ hides the panel. Chips above the chart list every model that covers the place and hour: tap to add, × to remove, tap a comparison chip to make it primary. The primary model drives the analytics; the others are dashed comparison curves.</p>
       <p><b>Reading the chart:</b> dots mark the real model levels; everything in between is interpolated. The green line is the model ground, which can differ from the real terrain. Drag the amber handle between the temperature plot and the wind-speed panel to give either one more room (double-tap resets). On a touch screen press and hold on the chart to read values, or lock the ✛ mode; pinch to zoom the altitude band, or use the two sliders on the left of the chart. On phones the profile opens zoomed to the lower ~10 km; ⟲ shows the full column.</p>
-      <p><b>Time:</b> one slider covers every hour up to the longest model horizon (16 days); day chips jump, ‹ › step, ▶ animates. Model chips appear and disappear as the hour enters or leaves their horizon. Run times are estimated from each model's cycle.</p>
+      <p><b>Time:</b> one slider covers every hour up to the longest model horizon (16 days); day chips jump, ‹ › step, ▶ animates. Every manual time change clears the model selection: the list re-sorts (models covering the hour first, finest grid on top) and the chips above the chart offer the models for that hour — pick anew. ▶ playback keeps the selection; a model whose horizon ends simply drops out of the chart. Run times are estimated from each model's cycle.</p>
+      <p><b>avg.:</b> with two or three models shown, the avg. chip draws their weighted mean as the primary curve (weight = 1/√grid km ÷ (1 + run age h / 6), normalised per level) and moves the individual models to dashed comparison curves; the analytics then describe the blend.</p>
       <p><b>Offline:</b> the app shell and the last fetched profiles are cached, so the slider keeps working without a connection.</p>
       <p><b>Data:</b> Open-Meteo (CC BY 4.0) with pressure-level output of DWD ICON, Météo-France AROME/ARPEGE, NOAA GFS/HRRR, ECMWF IFS/AIFS, UK Met Office, ECCC GEM and JMA. MeteoSwiss ICON-CH1/CH2 have no pressure levels on Open-Meteo yet and are planned for a later version. Map tiles by OpenStreetMap and OpenTopoMap, place search by Open-Meteo geocoding, place names by Nominatim. Includes Leaflet (BSD-2-Clause) and qrcodejs (MIT).</p>
     </div>
@@ -282,6 +289,7 @@
 <script src="js/info.js"></script>
 <script src="js/models.js"></script>
 <script src="js/openmeteo.js"></script>
+<script src="js/blend.js"></script>
 <script src="js/draw.js"></script>
 <script src="js/analytics.js"></script>
 <script src="js/app.js"></script>

@@ -141,6 +141,8 @@ const sleep = ms => new Promise(r=>setTimeout(r, ms));
   const chips = () => Array.from(d.querySelectorAll('#modelChips .model-chip')).map(c=>({k:c.dataset.chip, cls:c.className}));
   check(chips().length >= 10 && chips().some(c=>c.k==='icon_d2' && /primary/.test(c.cls)), chips().length+' model chips, ICON-D2 primary');
   check(!chips().some(c=>c.k==='gfs_hrrr' || c.k==='meteoswiss_icon_ch1'), 'HRRR and ICON-CH1 not offered');
+  check(!d.querySelector('#modelChips [data-avg]'), 'no avg chip with a single model');
+  check(d.getElementById('placeElev').textContent === '1980 m AMSL' && d.getElementById('placeCoords').textContent.includes('46.9600'), 'place card: name / coordinates / elevation on separate lines');
   d.querySelector('#modelChips [data-chip="gfs_global"]').click();
   for(let i=0;i<60 && d.getElementById('loadingOverlay').style.display !== 'none'; i++) await sleep(100);
   await sleep(200);
@@ -150,36 +152,68 @@ const sleep = ms => new Promise(r=>setTimeout(r, ms));
   check(d.getElementById('diagStrip').textContent.includes('CAPE') && d.getElementById('statStrip').textContent.includes('ICON-D2'), 'diagnostics and facts strips rendered');
   check(d.getElementById('analyticalCommentsList').children.length >= 3, 'analytical comments rendered');
   check(d.getElementById('windPanelHandle').style.display === 'flex', 'wind panel handle visible');
+  check(d.querySelectorAll('#modelChips .head-actions').length === 0 && d.querySelector('.toolbar .head-actions'), 'action buttons outside the chip row');
 
-  // slider to the end: ICON-D2 leaves its horizon, chip disappears, GFS takes over
+  // avg chip
+  const avgChip = d.querySelector('#modelChips [data-avg]');
+  check(avgChip, 'avg chip offered with two models');
+  avgChip.click(); await sleep(120);
+  check(w.eval('state.renderedPrimary') === 'avg' && w.eval('state.compareFlights.length') === 2, 'avg drawn as primary, both models as comparisons');
+  check(d.getElementById('statStrip').textContent.includes('Weighted mean') && /ICON-D2 \d+ %/.test(d.getElementById('statStrip').textContent), 'facts show the weights: '+(d.getElementById('statStrip').textContent.match(/ICON-D2 \d+ % · GFS \d+ %/)||[''])[0]);
+  check(d.getElementById('diagStrip').textContent.includes('°C'), 'diagnostics averaged');
+  d.querySelector('#modelChips [data-avg] .x').click(); await sleep(120);
+  check(w.eval('state.renderedPrimary') === 'icon_d2', 'avg switched off again');
+
+  // third model + limit of three
+  d.querySelector('#modelChips [data-chip="icon_eu"]').click();
+  for(let i=0;i<60 && d.getElementById('loadingOverlay').style.display !== 'none'; i++) await sleep(100);
+  await sleep(150);
+  d.querySelector('#modelChips [data-chip="ecmwf_ifs025"]').click();
+  for(let i=0;i<60 && d.getElementById('loadingOverlay').style.display !== 'none'; i++) await sleep(100);
+  await sleep(150);
+  const sel = w.eval('state.selectedModels');
+  check(sel.length === 3 && !sel.includes('gfs_global') && sel.includes('ecmwf_ifs025'), 'fourth model replaces the oldest comparison: '+sel.join(','));
+  check(w.eval('state.compareFlights.length') === 2, 'two comparison curves drawn');
+
+  // manual time change clears the selection and re-sorts the list
   const sl = d.getElementById('timeSlider');
   const max = parseInt(sl.max,10);
-  check(max > 24*10, 'slider spans the GFS horizon: max idx '+max);
+  check(max > 24*10, 'slider spans the longest horizon: max idx '+max);
+  sl.value = String(parseInt(sl.min,10)+2); sl.dispatchEvent(new w.Event('input'));
+  await sleep(120);
+  check(w.eval('state.selectedModels').length === 0 && d.getElementById('emptyState').style.display === 'block' && d.getElementById('emptyTitle').textContent.startsWith('Choose a model'), 'time change clears the selection and asks for a model');
+  check(d.querySelectorAll('#modelList input:checked').length === 0, 'model checkboxes empty');
+  check(chips().length >= 10 && chips().every(c=>/avail/.test(c.cls)), 'all chips offered, none selected');
+  const order = () => Array.from(d.querySelectorAll('#modelList .model-row')).map(r=>r.dataset.model);
+  check(order()[0] === 'icon_d2', 'list starts with the finest applicable model: '+order().slice(0,3).join(','));
   sl.value = String(max); sl.dispatchEvent(new w.Event('input'));
   await sleep(120);
-  check(!chips().some(c=>c.k==='icon_d2') && chips().some(c=>c.k==='gfs_global' && /primary/.test(c.cls)), 'ICON-D2 chip gone beyond its horizon, GFS chip primary');
-  check(d.getElementById('profileNotice').style.display === 'block' && d.getElementById('profileNotice').textContent.includes('GFS'), 'fallback notice: '+d.getElementById('profileNotice').textContent);
-  check(d.querySelector('#modelList [data-model="icon_d2"]').closest('.model-row').textContent.includes('beyond horizon'), 'model list marks ICON-D2 beyond horizon');
-  // back: chip returns
-  d.querySelector('#dayChips [data-day="0"]').click();
-  await sleep(120);
-  check(chips().some(c=>c.k==='icon_d2' && /primary/.test(c.cls)), 'day chip jump restores ICON-D2 as primary');
-  d.dispatchEvent(new w.KeyboardEvent('keydown', {key:'ArrowRight', bubbles:true}));
-  await sleep(80);
-  check(d.getElementById('timeStripLabel').textContent.length > 8, 'time strip label: '+d.getElementById('timeStripLabel').textContent);
-
-  // make GFS primary via chip, remove via ×
+  check(order()[0] === 'gfs_global' && d.querySelector('#modelList .model-row').classList.contains('later') === false && d.querySelectorAll('#modelList .model-row')[1].classList.contains('later'), 'at the end of the horizon only GFS is applicable and on top: '+order().slice(0,4).join(','));
+  check(!chips().some(c=>c.k==='icon_d2') && chips().some(c=>c.k==='gfs_global'), 'chips follow the horizon (no ICON-D2, GFS present)');
   d.querySelector('#modelChips [data-chip="gfs_global"]').click();
   await sleep(150);
-  check(w.eval('state.primaryModel') === 'gfs_global' && d.getElementById('statStrip').textContent.includes('GFS'), 'comparison chip tap makes GFS primary');
-  d.querySelector('#modelChips [data-remove="gfs_global"]').click();
+  check(w.eval('state.rows') != null && w.eval('state.primaryModel') === 'gfs_global', 'picking GFS draws it as primary (already fetched, no reload)');
+  d.querySelector('#dayChips [data-day="0"]').click();
+  await sleep(120);
+  check(w.eval('state.selectedModels').length === 0 && order()[0] === 'icon_d2', 'day chip jump clears the selection and re-sorts');
+  d.querySelector('#modelChips [data-chip="icon_d2"]').click();
   await sleep(150);
-  check(w.eval('state.selectedModels').join(',') === 'icon_d2' && w.eval('state.primaryModel') === 'icon_d2', '× removes GFS, ICON-D2 primary again');
+  d.dispatchEvent(new w.KeyboardEvent('keydown', {key:'ArrowRight', bubbles:true}));
+  await sleep(80);
+  check(w.eval('state.selectedModels').length === 0, 'arrow key also clears the selection');
+  d.querySelector('#modelChips [data-chip="icon_d2"]').click();
+  await sleep(150);
+  // playback keeps the selection
+  d.getElementById('playBtn').click();
+  await sleep(1300);
+  d.getElementById('playBtn').click();
+  check(w.eval('state.selectedModels').join(',') === 'icon_d2' && w.eval('state.rows') != null, 'playback keeps the selection ('+w.eval('state.timeIdx')+')');
   // star in the list
   d.querySelector('#modelList [data-primary="icon_eu"]').click();
   for(let i=0;i<60 && d.getElementById('loadingOverlay').style.display !== 'none'; i++) await sleep(100);
   await sleep(150);
   check(w.eval('state.primaryModel') === 'icon_eu' && w.eval('state.selectedModels').includes('icon_eu'), 'star adds ICON-EU and makes it primary');
+  check(d.getElementById('timeStripLabel').textContent.length > 8, 'time strip label: '+d.getElementById('timeStripLabel').textContent);
 
   // diagram radios, theta-E, settings menu, side handle
   const skew = d.querySelector('input[name=diagramType][value=skewt]'); skew.checked = true; skew.dispatchEvent(new w.Event('change'));

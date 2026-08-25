@@ -277,6 +277,7 @@ function draw(rows){
   ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
   ctx.font = '9px IBM Plex Mono, monospace';
   const groundAltM = rows[0][1];
+  const altLabelYs = [];
   for(let p=1050;p>=50;p-=50){
     if(p % altLabelStep !== 0) continue;
     const y = yScale(yOf(p));
@@ -284,6 +285,7 @@ function draw(rows){
     const alt = altitudeAtPressure(rows, p);
     if(alt!=null){
       ctx.fillText(fmtAxisAlt(alt, groundAltM), altLabelX, y);
+      altLabelYs.push(y);
     }
   }
   // transition-altitude marker on the axis, when displaying Flight Levels —
@@ -317,7 +319,8 @@ function draw(rows){
     const pTopAxis = pOf(Ymin);
     const yTop = yScale(Ymin);
     const altTop = altitudeAtPressure(rows, pTopAxis);
-    if(altTop!=null){
+    // skip when a regular altitude label already sits within 12 px
+    if(altTop!=null && !altLabelYs.some(y=>Math.abs(y-(yTop+7)) < 12)){
       ctx.textBaseline = 'top';
       ctx.font = '9px IBM Plex Mono, monospace';
       ctx.fillStyle = cText;

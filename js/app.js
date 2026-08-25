@@ -2,7 +2,8 @@
 // Loaded last; relies on the globals from core.js, info.js, analytics.js,
 // draw.js, models.js and openmeteo.js (classic scripts sharing one scope).
 
-const APP_VERSION = 'v0.10.0 (2026-08-25)';
+const APP_VERSION = 'v0.11.0 (2026-08-25)';
+const MAX_TOTAL = 3; // models drawn at once (primary + comparisons)
 const SESSION_KEY = 'sc_session_v2';
 const SETTINGS_KEY = 'sc_settings_v1';
 const FAV_KEY = 'sc_favorites_v1';
@@ -107,13 +108,23 @@ function maxIdx(){
   return Math.min(m, state.timeline.hours-1);
 }
 function clampIdx(idx){ return Math.max(nowIdx(), Math.min(maxIdx(), idx)); }
+// Manual time changes (slider, day chips, picker, ‹ ›, arrow keys) clear the
+// model selection: the list re-sorts for the new hour and the user picks the
+// model anew. Playback (opts.user === false) keeps the selection.
 function setTimeIdx(idx, opts){
   opts = opts || {};
   idx = clampIdx(idx);
   const changed = idx !== state.timeIdx;
   state.timeIdx = idx;
+  if(changed && opts.user !== false) clearSelection();
   renderTimeControls();
+  renderModelList();
   if(changed || opts.force) scheduleRender();
+}
+function clearSelection(){
+  state.selectedModels = []; state.selectionOrder = []; state.primaryModel = null; state.avgOn = false;
+  state.rows = null; state.compareFlights = []; state.renderedPrimary = null;
+  hideNotice();
 }
 let renderPending = false;
 function scheduleRender(){
@@ -176,7 +187,7 @@ function togglePlay(){
   $('playBtn').textContent = '❚❚';
   playTimer = setInterval(()=>{
     if(state.timeIdx >= maxIdx()){ togglePlay(); return; }
-    setTimeIdx(state.timeIdx+1);
+    setTimeIdx(state.timeIdx+1, {user:false});
   }, Math.round(1000/playSpeed));
 }
 
@@ -251,7 +262,8 @@ function locationIsLoaded(){
 function updatePlaceCard(){
   const l = state.location; if(!l) return;
   $('placeName').textContent = l.name || 'Map centre';
-  $('placeCoords').textContent = fmtCoord(l.lat, l.lon) + (l.elevation!=null ? ` · ${Math.round(l.elevation)} m` : '');
+  $('placeCoords').textContent = fmtCoord(l.lat, l.lon);
+  $('placeElev').textContent = l.elevation!=null ? `${Math.round(l.elevation)} m AMSL` : '';
   const fav = favorites().some(f=>Math.abs(f.lat-l.lat)<1e-4 && Math.abs(f.lon-l.lon)<1e-4);
   $('favBtn').textContent = fav ? '★' : '☆';
   const loaded = locationIsLoaded();
@@ -320,16 +332,21 @@ function applicableModels(){
 function renderModelList(){
   const l = state.location; if(!l) return;
   const now = new Date();
-  const rows = MODEL_CATALOG.map(m=>({m, app: modelApplicability(m, l.lat, l.lon, null, now)}));
-  const okCount = rows.filter(r=>r.app.ok).length;
-  $('modelSummary').textContent = `${okCount} cover this place`;
+  const rows = MODEL_CATALOG.map(m=>{
+    const app = modelApplicability(m, l.lat, l.lon, null, now);
+    const inHorizon = app.ok && state.timeline && modelInHorizonAt(m, state.timeIdx);
+    return {m, app, inHorizon, rank: inHorizon ? 0 : (app.ok ? 1 : (m.noVertical ? 3 : 2))};
+  });
+  // order follows the time slider: models covering this hour first, finest grid on top
+  rows.sort((a,b)=> a.rank!==b.rank ? a.rank-b.rank : (a.m.gridKm!==b.m.gridKm ? a.m.gridKm-b.m.gridKm : estimateRunAgeHours(a.m, now)-estimateRunAgeHours(b.m, now)));
+  const okCount = rows.filter(r=>r.inHorizon).length;
+  $('modelSummary').textContent = state.timeline ? `${okCount} cover this hour` : `${rows.filter(r=>r.app.ok).length} cover this place`;
   const cachedLevels = k => { try{ const c = JSON.parse(localStorage.getItem('sc_vars_v1_'+k)||'null'); return c && c.levels ? c.levels.length : null; }catch(e){ return null; } };
-  const html = rows.map(({m, app})=>{
+  const html = rows.map(({m, app, inHorizon})=>{
     const checked = state.selectedModels.includes(m.key);
     const nLev = m.levels ? (cachedLevels(m.key) || LEVEL_SETS[m.levels].length) : 0;
     const until = app.ok ? fmtLocal(estimateModelValidUntil(m, now).getTime(), true) : '';
-    const inHorizon = app.ok && state.timeline && modelInHorizonAt(m, state.timeIdx);
-    return `<div class="model-row${app.ok?'':' off'}" data-model="${m.key}">
+    return `<div class="model-row${app.ok?'':' off'}${inHorizon?'':' later'}" data-model="${m.key}">
       <input type="checkbox" data-model="${m.key}" ${checked?'checked':''} ${app.ok?'':'disabled'} title="show as curve">
       <div class="mr-body" data-toggle="${m.key}">
         <div class="mr-name">${m.label}${app.ok && !inHorizon ? ' <span class="badge">beyond horizon</span>' : ''}</div>
@@ -346,22 +363,26 @@ function renderModelChips(){
   if(!state.loaded){ wrap.innerHTML = ''; return; }
   const avail = applicableModels().filter(m=>modelInHorizonAt(m, state.timeIdx));
   const withData = modelsWithData();
-  // the model actually driving the chart (fallback when the chosen primary has no data this hour)
+  const avgActive = state.avgOn && state.renderedPrimary === 'avg';
   const primary = (state.renderedPrimary && withData.includes(state.renderedPrimary)) ? state.renderedPrimary : state.primaryModel;
-  wrap.innerHTML = avail.map(m=>{
+  let html = avail.map(m=>{
     const k = m.key, sel = state.selectedModels.includes(k);
     const ci = state.compareFlights.findIndex(c=>c.key===k);
     let cls = 'chip model-chip', style = '', title;
-    if(k===primary && withData.includes(k)){ cls += ' primary'; title = 'primary model (drives the analytics)'; }
-    else if(sel){ cls += ' comp'; const col = ci>=0 ? COMPARE_COLORS[ci].temp : 'var(--text-dim)'; style = `border-color:${col};color:${col}`; title = 'comparison curve · tap to make primary'; }
+    if(!avgActive && k===primary && withData.includes(k)){ cls += ' primary'; title = 'primary model (drives the analytics)'; }
+    else if(sel){ cls += ' comp'; const col = ci>=0 ? COMPARE_COLORS[ci].temp : 'var(--text-dim)'; style = `border-color:${col};color:${col}`; title = avgActive ? 'part of the blend' : 'comparison curve · tap to make primary'; }
     else { cls += ' avail'; title = 'tap to add this model'; }
     return `<button class="${cls}" data-chip="${k}" style="${style}" title="${title}">${sel?'':'+ '}${m.label}${sel?`<span class="x" data-remove="${k}" title="remove">×</span>`:''}</button>`;
   }).join('');
+  if(withData.length >= 2){
+    html += `<button class="chip avg${avgActive?' primary':''}" data-avg="1" title="weighted mean of the shown models (grid spacing × run age)">avg.${avgActive?'<span class="x" title="back to the single model">×</span>':''}</button>`;
+  }
+  wrap.innerHTML = html;
 }
 function selectionAdd(key){
   if(state.selectedModels.includes(key)) return true;
   let removed = null;
-  if(state.selectedModels.length >= MAX_COMPARE+1){
+  if(state.selectedModels.length >= MAX_TOTAL){
     const order = state.selectionOrder || [];
     const cand = order.filter(k=>k!==state.primaryModel && state.selectedModels.includes(k));
     removed = cand[0] || state.selectedModels.find(k=>k!==state.primaryModel);
@@ -370,7 +391,7 @@ function selectionAdd(key){
   state.selectedModels = MODEL_CATALOG.map(m=>m.key).filter(k=>state.selectedModels.includes(k) || k===key);
   state.selectionOrder = (state.selectionOrder||[]).filter(k=>state.selectedModels.includes(k)).concat([key]);
   if(!state.primaryModel || !state.selectedModels.includes(state.primaryModel)) state.primaryModel = key;
-  if(removed) showNotice(`${MODEL_BY_KEY[removed].label} removed — up to ${MAX_COMPARE+1} models at once.`, false);
+  if(removed) showNotice(`${MODEL_BY_KEY[removed].label} removed — up to ${MAX_TOTAL} models at once.`, false);
   return true;
 }
 function selectionRemove(key){
@@ -460,40 +481,63 @@ async function loadProfile(opts){
 
 // ---------- profile rendering ----------
 function modelsWithData(){ return state.selectedModels.filter(k=>state.modelData[k] && OpenMeteo.hasDataAt(state.modelData[k], state.timeIdx)); }
+function showEmpty(title, text){
+  $('emptyTitle').textContent = title; $('emptyText').innerHTML = text;
+  $('emptyState').style.display = 'block'; $('dataView').style.display = 'none';
+}
 function renderProfile(){
   renderTimeControls();
-  if(!state.loaded){ $('emptyState').style.display = 'block'; $('dataView').style.display = 'none'; renderModelChips(); return; }
-  $('emptyState').style.display = 'none';
-  $('dataView').style.display = 'block';
+  if(!state.loaded){
+    showEmpty('No profile loaded', 'Move the map so the crosshair sits on your site (or search a place, or use ◎ for your position), then press <b>Load</b>. Models that cover the place and hour appear as chips above the chart; the ☰ menu holds units and display options.');
+    renderModelChips(); return;
+  }
   const avail = modelsWithData();
-  const notice = $('profileNotice');
   if(!avail.length){
-    state.rows = null; state.compareFlights = [];
-    showNotice('No selected model covers this hour — add one of the chips above, or move the slider back.', false);
-    renderModelChips(); renderModelList();
+    state.rows = null; state.compareFlights = []; state.renderedPrimary = null;
+    if(playTimer) togglePlay();
+    const n = applicableModels().filter(m=>modelInHorizonAt(m, state.timeIdx)).length;
+    showEmpty(`Choose a model for ${fmtLocal(currentTimeMs(), true)}`,
+      n ? `${n} model${n>1?'s cover':' covers'} this hour — they are listed first in the left panel and as chips above. Tap one to draw it.`
+        : 'No model reaches this hour at this place. Move the time slider back.');
+    renderModelChips(); renderModelList(); renderTimeControls();
     return;
   }
+  $('emptyState').style.display = 'none';
+  $('dataView').style.display = 'block';
   let primary = state.primaryModel;
   if(!avail.includes(primary)){
-    primary = avail[0];
-    showNotice(`${MODEL_BY_KEY[state.primaryModel].label} has no data for this hour — showing ${MODEL_BY_KEY[primary].label} instead.`, false);
-  } else if(notice.style.display==='block' && !notice.classList.contains('error') && !notice.dataset.keep){
-    hideNotice();
+    // only reachable during playback (manual time changes clear the selection)
+    primary = avail[0]; state.primaryModel = primary;
+    showNotice(`Primary model left its horizon — continuing with ${MODEL_BY_KEY[primary].label}.`, false);
   }
-  const md = state.modelData[primary];
-  const rows = OpenMeteo.buildRows(md, state.timeIdx);
-  if(!rows){ showNotice('Model profile incomplete for this hour.', false); return; }
-  state.rows = rows;
-  state.compareFlights = avail.filter(k=>k!==primary).slice(0, MAX_COMPARE).map(k=>{
-    const r = OpenMeteo.buildRows(state.modelData[k], state.timeIdx);
-    return r ? {rows: r, source: MODEL_BY_KEY[k].label, key: k} : null;
-  }).filter(Boolean);
-  state.renderedPrimary = primary;
+  const shown = [primary].concat(avail.filter(k=>k!==primary)).slice(0, MAX_TOTAL);
+  const rowsBy = {};
+  shown.forEach(k=>{ rowsBy[k] = OpenMeteo.buildRows(state.modelData[k], state.timeIdx); });
+  if(!rowsBy[primary]){ showNotice('Model profile incomplete for this hour.', false); return; }
+  let md = state.modelData[primary], usedAvg = false;
+  if(state.avgOn && shown.filter(k=>rowsBy[k]).length >= 2){
+    const entries = shown.filter(k=>rowsBy[k]).map(k=>({key:k, rows: rowsBy[k], meta: MODEL_BY_KEY[k], weight: Blend.modelWeight(MODEL_BY_KEY[k])}));
+    const avgRows = Blend.buildAverageRows(entries);
+    if(avgRows){
+      state.rows = avgRows;
+      state.compareFlights = entries.map(e=>({rows: e.rows, source: e.meta.label, key: e.key}));
+      state.renderedPrimary = 'avg';
+      state.blendEntries = Blend.normalise(entries);
+      md = null; usedAvg = true;
+      $('riseTitle').textContent = 'Vertical velocity (model mean)';
+    } else { state.avgOn = false; }
+  }
+  if(!usedAvg){
+    state.rows = rowsBy[primary];
+    state.compareFlights = shown.filter(k=>k!==primary && rowsBy[k]).map(k=>({rows: rowsBy[k], source: MODEL_BY_KEY[k].label, key: k}));
+    state.renderedPrimary = primary;
+    state.blendEntries = null;
+  }
   renderProfileFacts();
   renderDiagStrip(md);
-  renderThermo(rows);
+  renderThermo(state.rows);
   renderLegend();
-  updateVerticalVelocityLabel(md);
+  if(md) updateVerticalVelocityLabel(md);
   renderModelChips();
   renderModelList();
   redrawAll();
@@ -527,11 +571,28 @@ function updateVerticalVelocityLabel(md){
   $('riseTitle').textContent = `Vertical velocity (model${unit?', '+unit:''})`;
 }
 function renderProfileFacts(){
-  const key = state.renderedPrimary; const md = state.modelData[key]; if(!md || !state.rows) return;
-  const m = md.meta, l = state.loaded;
-  const run = estimateModelRun(m);
+  const key = state.renderedPrimary; const l = state.loaded; if(!key || !state.rows || !l) return;
   const top = state.rows[state.rows.length-1];
   const lvlCount = state.rows.filter(r=>r[12]!=='agl').length;
+  if(key === 'avg'){
+    const parts = (state.blendEntries||[]).map(e=>`${e.meta.label} ${Math.round(e.weight*100)} %`).join(' · ');
+    const items = [
+      ['Model', `Weighted mean`],
+      ['Weights', parts],
+      ['Levels', `${lvlCount} lv · top ${Math.round(top[2])} hPa`],
+      ['Model ground · site', `${Math.round(state.rows[0][1])} m · ${l.elevation!=null ? Math.round(l.elevation)+' m' : 'n/a'}`],
+      ['Valid', `${fmtLocal(currentTimeMs(), true)} · ${fmtUtc(currentTimeMs())}`],
+      ['Weighting', '1/√grid km ÷ (1 + run age h / 6)'],
+      ['Comparison', state.compareFlights.map(c=>c.source).join(', ')],
+      ['Place', `${l.name || fmtCoord(l.lat, l.lon)}`],
+    ];
+    $('statStrip').innerHTML = items.map(([k,v])=>`<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+    $('subtitle').textContent = `${l.name || fmtCoord(l.lat,l.lon)} · ${fmtLocal(currentTimeMs(), true)} · weighted mean · ${APP_VERSION}`;
+    return;
+  }
+  const md = state.modelData[key]; if(!md) return;
+  const m = md.meta;
+  const run = estimateModelRun(m);
   const age = Math.round((Date.now()-md.fetchedAt)/60000);
   const cached = (md.t0*1000) < Date.now()-36*3600e3;
   const items = [
@@ -549,7 +610,8 @@ function renderProfileFacts(){
 }
 function renderDiagStrip(md){
   const el = $('diagStrip');
-  const s = OpenMeteo.surfaceAt(md, state.timeIdx) || {};
+  const s = md ? (OpenMeteo.surfaceAt(md, state.timeIdx) || {})
+               : (Blend.averageSurface((state.blendEntries||[]).map(e=>({surface: OpenMeteo.surfaceAt(state.modelData[e.key], state.timeIdx), weight: e.weight}))) || {});
   const f1 = (v,d)=> v==null ? '—' : (Math.round(v*Math.pow(10,d||0))/Math.pow(10,d||0)).toFixed(d||0);
   const spd = v => v==null ? '—' : formatSpeed(v).toFixed(0)+' '+speedUnitLabel();
   const items = [
@@ -802,6 +864,7 @@ function buildShareUrl(){
   params.set('t', new Date(currentTimeMs()).toISOString().slice(0,13)+'Z');
   params.set('models', state.selectedModels.join(','));
   if(state.primaryModel) params.set('p', state.primaryModel);
+  if(state.avgOn) params.set('avg', '1');
   return location.origin + location.pathname + '#' + params.toString();
 }
 async function shareProfile(){
@@ -823,7 +886,7 @@ function parseHash(){
     const loc = (p.get('loc')||'').split(',').map(Number);
     if(loc.length!==2 || !isFinite(loc[0]) || !isFinite(loc[1])) return null;
     return {lat: loc[0], lon: loc[1], name: p.get('name')||null, t: p.get('t') ? Date.parse(p.get('t').replace('Z',':00:00Z')) : null,
-            models: (p.get('models')||'').split(',').filter(k=>MODEL_BY_KEY[k]), primary: p.get('p')||null};
+            models: (p.get('models')||'').split(',').filter(k=>MODEL_BY_KEY[k]), primary: p.get('p')||null, avg: p.get('avg')==='1'};
   }catch(e){ return null; }
 }
 let _preprintTheme = null;
@@ -903,6 +966,7 @@ function registerSw(){
     state.location = Object.assign({}, state.location && Math.abs(state.location.lat-hash.lat)<2e-4 && Math.abs(state.location.lon-hash.lon)<2e-4 ? state.location : {}, {lat: hash.lat, lon: hash.lon, name: hash.name || null});
     if(hash.models.length){ state.selectedModels = hash.models; state.selectionOrder = hash.models.slice(); }
     if(hash.primary) state.primaryModel = hash.primary;
+    state.avgOn = !!hash.avg;
     state.restoredTimeMs = hash.t || null;
     startLoad = true;
   } else if(state.pendingLoad){
@@ -961,10 +1025,14 @@ function registerSw(){
     const body = e.target.closest('[data-toggle]'); if(body){ const row = body.closest('.model-row'); if(row && !row.classList.contains('off')) toggleModel(body.dataset.toggle); }
   });
   $('modelChips').addEventListener('click', e=>{
+    const avg = e.target.closest('[data-avg]'); if(avg){ state.avgOn = !state.avgOn; renderProfile(); return; }
     const x = e.target.closest('[data-remove]'); if(x){ e.stopPropagation(); toggleModel(x.dataset.remove); return; }
     const chip = e.target.closest('[data-chip]'); if(!chip) return;
     const k = chip.dataset.chip;
-    if(state.selectedModels.includes(k)){ if(k!==state.primaryModel) setPrimary(k); }
+    if(state.selectedModels.includes(k)){
+      if(state.avgOn){ state.avgOn = false; setPrimary(k); }
+      else if(k!==state.primaryModel) setPrimary(k);
+    }
     else toggleModel(k, {addOnly:true});
   });
   // chart
@@ -982,8 +1050,10 @@ function registerSw(){
   }));
   $('thermoStrip').addEventListener('click', e=>{ const t = e.target.closest('[data-info-key]'); if(t) openInfoModal(t.dataset.infoKey); });
   $('commentsInfoBtn').addEventListener('click', ()=>openInfoModal('analyticalComments'));
+  const measureHeader = ()=>{ const h = document.querySelector('header.topbar'); if(h && h.offsetHeight) document.documentElement.style.setProperty('--topbar-h', h.offsetHeight+'px'); };
+  measureHeader();
   let resizeTimer = null;
-  window.addEventListener('resize', ()=>{ clearTimeout(resizeTimer); resizeTimer = setTimeout(()=>{ if(state.rows) redrawAll(); if(PICK_MAP) PICK_MAP.invalidateSize(); }, 120); });
+  window.addEventListener('resize', ()=>{ clearTimeout(resizeTimer); resizeTimer = setTimeout(()=>{ measureHeader(); if(state.rows) redrawAll(); if(PICK_MAP) PICK_MAP.invalidateSize(); }, 120); });
   window.addEventListener('online', ()=>{ if(state.loaded) showNotice('Back online.', false); });
 
   registerSw();

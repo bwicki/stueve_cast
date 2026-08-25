@@ -1,5 +1,5 @@
 // StueveCast service worker: offline app shell + cached model data + map tiles.
-const VERSION = 'stuevecast-v0.10.0';
+const VERSION = 'stuevecast-v0.11.0';
 const SHELL_CACHE = VERSION + '-shell';
 const DATA_CACHE = VERSION + '-data';
 const TILE_CACHE = 'stuevecast-tiles';
@@ -8,7 +8,7 @@ const TILE_LIMIT = 700;
 const SHELL = [
   './', './index.html', './manifest.webmanifest',
   './css/s2-base.css', './css/app.css',
-  './js/core.js', './js/info.js', './js/models.js', './js/openmeteo.js', './js/draw.js', './js/analytics.js', './js/app.js',
+  './js/core.js', './js/info.js', './js/models.js', './js/openmeteo.js', './js/blend.js', './js/draw.js', './js/analytics.js', './js/app.js',
   './js/qrcode.min.js',
   './js/vendor/leaflet/leaflet.js', './js/vendor/leaflet/leaflet.css',
   './js/vendor/leaflet/images/layers.png', './js/vendor/leaflet/images/layers-2x.png',

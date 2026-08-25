@@ -112,7 +112,7 @@ context.fetch = async (url) => {
 };
 
 // ---------- load app scripts (without app.js, which needs Leaflet) ----------
-['js/core.js','js/info.js','js/models.js','js/openmeteo.js','js/draw.js','js/analytics.js'].forEach(load);
+['js/core.js','js/info.js','js/models.js','js/openmeteo.js','js/blend.js','js/draw.js','js/analytics.js'].forEach(load);
 // helpers the chart code expects from app.js
 vm.runInContext('function updateAltRangeFill(){}', context);
 
@@ -177,6 +177,22 @@ vm.runInContext('function updateAltRangeFill(){}', context);
   check(Object.keys(FIELD_INFO).length >= 15 && Object.keys(FIELD_MODEL_NOTES).length === 15, 'FIELD_INFO + model notes present');
   S.openInfoModal('cape');
   check(S.document.getElementById('infoModalContent').innerHTML.includes('Model data note'), 'info modal includes model note');
+
+  console.log('4b) weighted mean of two profiles');
+  const Blend = G('Blend');
+  const rowsB = OpenMeteo.buildRows(md2, 15);
+  const wA = Blend.modelWeight(MODEL_BY_KEY.icon_d2), wB = Blend.modelWeight(MODEL_BY_KEY.gfs_global);
+  check(wA > wB*2, `finer grid weighs more: ICON-D2 ${wA.toFixed(3)} vs GFS ${wB.toFixed(3)}`);
+  const avg = Blend.buildAverageRows([{key:'a', rows, meta: MODEL_BY_KEY.icon_d2, weight: wA}, {key:'b', rows: rowsB, meta: MODEL_BY_KEY.gfs_global, weight: wB}]);
+  check(avg && avg.length >= 10 && avg[0][12]==='sfc', 'blend rows built: '+(avg&&avg.length));
+  check(avg.every((r,i)=>i===0 || r[1] > avg[i-1][1]) && avg.every(r=>r[5] <= r[3]+1e-6), 'blend heights increase, Td <= T');
+  const n = Blend.normalise([{weight:wA},{weight:wB}]); const f = wA/(wA+wB);
+  const tA = rows.find(r=>r[2]===500)[3], tB = rowsB.find(r=>r[2]===500)[3], tAvg = avg.find(r=>Math.abs(r[2]-500)<0.1)[3];
+  check(Math.abs(tAvg - (f*tA + (1-f)*tB)) < 0.05, `T500 blend ${tAvg.toFixed(2)} = ${f.toFixed(2)}·${tA.toFixed(2)} + ${(1-f).toFixed(2)}·${tB.toFixed(2)}`);
+  check(Blend.buildAverageRows([{rows, meta: MODEL_BY_KEY.icon_d2, weight: 1}]) === null, 'single model gives no blend');
+  const sA = OpenMeteo.surfaceAt(md2, 14), sB = OpenMeteo.surfaceAt(md2, 15);
+  const sAvg = Blend.averageSurface([{surface: sA, weight: wA}, {surface: sB, weight: wB}]);
+  check(sAvg && Math.abs(sAvg.temperature_2m - (f*sA.temperature_2m+(1-f)*sB.temperature_2m)) < 1e-6 && sAvg.wind_direction_10m > 0, 'surface diagnostics averaged (vector wind)');
 
   console.log('5) drawing with a fake canvas (runtime errors only)');
   state.compareFlights = [{rows: OpenMeteo.buildRows(md2, 15), source: 'AROME', key: 'x'}];
