@@ -2,7 +2,7 @@
 // Loaded last; relies on the globals from core.js, info.js, analytics.js,
 // draw.js, models.js and openmeteo.js (classic scripts sharing one scope).
 
-const APP_VERSION = 'v0.11.0 (2026-08-25)';
+const APP_VERSION = 'v0.11.2 (2026-08-25)';
 const MAX_TOTAL = 3; // models drawn at once (primary + comparisons)
 const SESSION_KEY = 'sc_session_v2';
 const SETTINGS_KEY = 'sc_settings_v1';
@@ -25,6 +25,7 @@ function saveSettings(){
   o.apiKey = state.apiKey || '';
   o.inspectLock = !!state.inspectLock;
   o.sideOpen = state.sideOpen !== false;
+  o.timeDisplay = state.timeDisplay || 'lt';
   lsSet(SETTINGS_KEY, o);
 }
 function loadSettings(){
@@ -36,6 +37,7 @@ function loadSettings(){
   if(o.apiKey) state.apiKey = o.apiKey;
   state.inspectLock = !!o.inspectLock;
   state.sideOpen = o.sideOpen !== false;
+  state.timeDisplay = o.timeDisplay === 'utc' ? 'utc' : 'lt';
 }
 
 // ---------- time helpers (location time zone) ----------
@@ -53,13 +55,15 @@ function tzOffsetMs(utcMs, timeZone){
   }
 }
 function locTz(){ const l = activeLoc(); return (l && l.timezone) || null; }
+// zone used for every displayed time: the location's zone (LT) or UTC
+function dispTz(){ return state.timeDisplay === 'utc' ? 'UTC' : (locTz() || 'UTC'); }
 function localParts(utcMs){
-  const off = tzOffsetMs(utcMs, locTz()||'UTC');
+  const off = tzOffsetMs(utcMs, dispTz());
   const d = new Date(utcMs + off);
   return {y:d.getUTCFullYear(), m:d.getUTCMonth(), d:d.getUTCDate(), h:d.getUTCHours(), min:d.getUTCMinutes(), dow:d.getUTCDay(), off};
 }
 function zonedToUtcMs(y, m, d, h, min){
-  const tz = locTz()||'UTC';
+  const tz = dispTz();
   let guess = Date.UTC(y, m, d, h, min||0);
   guess -= tzOffsetMs(guess, tz);
   guess = Date.UTC(y, m, d, h, min||0) - tzOffsetMs(guess, tz);
@@ -67,7 +71,16 @@ function zonedToUtcMs(y, m, d, h, min){
 }
 const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-function tzAbbr(){ const l = activeLoc(); return l && l.tzAbbr ? ' '+l.tzAbbr : (l && l.timezone ? '' : ' UTC'); }
+function tzAbbr(){ if(state.timeDisplay === 'utc') return ' UTC'; const l = activeLoc(); return l && l.tzAbbr ? ' '+l.tzAbbr : (l && l.timezone ? '' : ' UTC'); }
+// the other zone, shown as a small secondary line under the main time label
+function fmtAlt(utcMs){
+  if(state.timeDisplay === 'utc'){
+    const l = activeLoc(); if(!l || !l.timezone) return '';
+    const off = tzOffsetMs(utcMs, l.timezone), d = new Date(utcMs+off);
+    return `${DOW[d.getUTCDay()]} ${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}${l.tzAbbr?' '+l.tzAbbr:' LT'}`;
+  }
+  return fmtUtcDate(utcMs);
+}
 function fmtLocal(utcMs, withDate){
   const p = localParts(utcMs);
   const hh = String(p.h).padStart(2,'0'), mm = String(p.min).padStart(2,'0');
@@ -85,6 +98,45 @@ function fmtCoord(lat, lon){
   return `${Math.abs(lat).toFixed(4)}° ${lat>=0?'N':'S'} · ${Math.abs(lon).toFixed(4)}° ${lon>=0?'E':'W'}`;
 }
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ---------- in-app dialog (replaces window.prompt / alert / confirm) ----------
+// opts: {title, text, input:{value, placeholder}|null, buttons:[{label, value, primary}]}
+// resolves {button, value}; Escape / backdrop = {button:'cancel'}
+function appDialog(opts){
+  return new Promise(resolve=>{
+    const ov = $('dialogOverlay'), inp = $('dialogInput'), acts = $('dialogActions');
+    $('dialogTitle').textContent = opts.title || '';
+    $('dialogText').innerHTML = opts.text || '';
+    $('dialogText').style.display = opts.text ? 'block' : 'none';
+    if(opts.input){ inp.style.display = 'block'; inp.value = opts.input.value || ''; inp.placeholder = opts.input.placeholder || ''; }
+    else inp.style.display = 'none';
+    acts.innerHTML = '';
+    const buttons = opts.buttons || [{label:'OK', value:'ok', primary:true}];
+    let done = false;
+    function finish(val){
+      if(done) return; done = true;
+      ov.style.display = 'none';
+      document.removeEventListener('keydown', onKey, true);
+      resolve({button: val, value: inp.value.trim()});
+    }
+    buttons.forEach(b=>{
+      const el = document.createElement('button');
+      el.className = b.primary ? 'primary-btn small' : 'reset-btn';
+      el.textContent = b.label;
+      el.addEventListener('click', ()=>finish(b.value));
+      acts.appendChild(el);
+    });
+    function onKey(e){
+      if(e.key==='Escape'){ e.stopPropagation(); finish('cancel'); }
+      else if(e.key==='Enter' && opts.input){ e.stopPropagation(); const pb = buttons.find(b=>b.primary); if(pb) finish(pb.value); }
+    }
+    document.addEventListener('keydown', onKey, true);
+    ov.onclick = e=>{ if(e.target===ov) finish('cancel'); };
+    ov.style.display = 'flex';
+    if(opts.input) setTimeout(()=>{ inp.focus(); inp.select(); }, 30);
+  });
+}
+function appInfo(text, title){ return appDialog({title: title||'StueveCast', text}); }
 
 // ---------- timeline: hour 0 = today 00 UTC, one slider for everything ----------
 function initTimeline(){
@@ -138,10 +190,10 @@ function renderTimeControls(){
   const leadTxt = lead < 0.5 ? 'now' : `+${Math.round(lead)} h`;
   $('timeLabel').textContent = fmtLocal(ms, true);
   $('timeLead').textContent = leadTxt;
-  $('timeLabelUtc').textContent = fmtUtcDate(ms);
+  $('timeLabelUtc').textContent = fmtAlt(ms);
   $('timeStripLabel').textContent = `${fmtLocal(ms, true)} · ${leadTxt}`;
   const l = activeLoc();
-  $('timeZoneNote').textContent = l && l.timezone ? l.timezone : 'UTC';
+  $('timeZoneNote').textContent = state.timeDisplay === 'utc' ? 'UTC' : (l && l.timezone ? l.timezone : 'UTC');
   const sl = $('timeSlider');
   sl.min = String(nowIdx()); sl.max = String(maxIdx()); sl.value = String(state.timeIdx);
   // day chips
@@ -212,8 +264,8 @@ function initMap(){
   const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {maxZoom: 17, subdomains:'abc', attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>, <a href="https://opentopomap.org">OpenTopoMap</a>'});
   const base = lsGet('sc_baselayer', 'topo')==='osm' ? osm : topo;
   base.addTo(PICK_MAP);
-  L.control.layers({'OpenTopoMap': topo, 'OpenStreetMap': osm}, null, {position:'topright'}).addTo(PICK_MAP);
-  PICK_MAP.on('baselayerchange', e=>lsSet('sc_baselayer', e.name==='OpenStreetMap' ? 'osm' : 'topo'));
+  L.control.layers({'Terrain': topo, 'Streets': osm}, null, {position:'topright', collapsed:false}).addTo(PICK_MAP);
+  PICK_MAP.on('baselayerchange', e=>lsSet('sc_baselayer', e.name==='Streets' ? 'osm' : 'topo'));
   PICK_MAP.on('moveend', ()=>{
     const c = PICK_MAP.getCenter();
     setPickedPoint(c.lat, c.lng, null);
@@ -264,18 +316,60 @@ function updatePlaceCard(){
   $('placeName').textContent = l.name || 'Map centre';
   $('placeCoords').textContent = fmtCoord(l.lat, l.lon);
   $('placeElev').textContent = l.elevation!=null ? `${Math.round(l.elevation)} m AMSL` : '';
-  const fav = favorites().some(f=>Math.abs(f.lat-l.lat)<1e-4 && Math.abs(f.lon-l.lon)<1e-4);
+  const fav = favIndexOf(l) >= 0;
   $('favBtn').textContent = fav ? '★' : '☆';
+  $('favBtn').title = fav ? 'Saved place — rename or remove' : 'Save this place';
   const loaded = locationIsLoaded();
   $('loadBtn').textContent = loaded ? 'Loaded' : 'Load';
   $('loadBtn').classList.toggle('attention', !loaded && !!state.loaded);
 }
 function favorites(){ return lsGet(FAV_KEY, []); }
-function renderFavorites(){
+function favIndexOf(l){ return favorites().findIndex(f=>Math.abs(f.lat-l.lat)<1e-4 && Math.abs(f.lon-l.lon)<1e-4); }
+// Saved places live in a dropdown under the search field: ★ opens it, and it
+// also appears when the empty search field gets focus.
+function showFavDropdown(){
+  const box = $('searchResults');
   const list = favorites();
-  const wrap = $('favList');
-  wrap.innerHTML = list.map((f,i)=>`<button class="chip" data-fav="${i}" title="${fmtCoord(f.lat,f.lon)}">${escapeHtml(f.name)}</button>`).join('');
-  wrap.style.display = list.length ? 'flex' : 'none';
+  if(!list.length){
+    box.innerHTML = '<div class="sr-head">Saved places</div><div class="sr-empty">None yet — press ☆ in the place card to save the crosshair position.</div>';
+  } else {
+    box.innerHTML = '<div class="sr-head">Saved places</div>' + list.map((f,i)=>
+      `<div class="sr-item fav" data-fav="${i}">
+        <div class="sr-main"><span>${escapeHtml(f.name)}</span><span class="sr-sub">${fmtCoord(f.lat,f.lon)}${f.elevation!=null?' · '+Math.round(f.elevation)+' m':''}</span></div>
+        <button class="sr-x" data-fav-remove="${i}" title="remove">×</button>
+      </div>`).join('');
+  }
+  box.style.display = 'block';
+}
+async function saveCurrentPlace(){
+  const l = state.location; if(!l) return;
+  const i = favIndexOf(l);
+  const list = favorites();
+  if(i >= 0){
+    const r = await appDialog({title:'Saved place', text:`<b>${escapeHtml(list[i].name)}</b><br>${fmtCoord(l.lat,l.lon)}`,
+      buttons:[{label:'Remove', value:'remove'},{label:'Rename', value:'rename'},{label:'Close', value:'cancel', primary:true}]});
+    if(r.button==='remove'){ list.splice(i,1); lsSet(FAV_KEY, list); }
+    else if(r.button==='rename'){
+      const r2 = await appDialog({title:'Rename place', input:{value:list[i].name, placeholder:'Name'}, buttons:[{label:'Cancel', value:'cancel'},{label:'Save', value:'save', primary:true}]});
+      if(r2.button==='save' && r2.value){ list[i].name = r2.value; lsSet(FAV_KEY, list); }
+    }
+  } else {
+    const r = await appDialog({title:'Save this place', text:`${fmtCoord(l.lat,l.lon)}${l.elevation!=null?' · '+Math.round(l.elevation)+' m AMSL':''}`,
+      input:{value: l.name || '', placeholder:'Name for this place'}, buttons:[{label:'Cancel', value:'cancel'},{label:'Save', value:'save', primary:true}]});
+    if(r.button==='save'){
+      list.push({name: r.value || fmtCoord(l.lat,l.lon), lat: l.lat, lon: l.lon, elevation: l.elevation, timezone: l.timezone});
+      lsSet(FAV_KEY, list);
+    }
+  }
+  updatePlaceCard();
+}
+async function removeFavorite(i){
+  const list = favorites(); const f = list[i]; if(!f) return;
+  const r = await appDialog({title:'Remove saved place', text:`Remove <b>${escapeHtml(f.name)}</b> from your saved places?`,
+    buttons:[{label:'Cancel', value:'cancel'},{label:'Remove', value:'remove', primary:true}]});
+  if(r.button!=='remove') return;
+  list.splice(i,1); lsSet(FAV_KEY, list);
+  showFavDropdown(); updatePlaceCard();
 }
 function goToPlace(lat, lon, name, zoom, load){
   const prev = state.location || {};
@@ -299,25 +393,38 @@ async function runSearch(q){
       box.style.display='none';
       $('searchInput').value = r.name;
       state.location = Object.assign(state.location||{}, {timezone: r.timezone});
-      goToPlace(r.lat, r.lon, r.admin ? `${r.name}, ${r.admin.split(',')[0]}` : r.name, 12, true);
+      goToPlace(r.lat, r.lon, r.country ? `${r.name}/${r.country}` : r.name, 12, true);
     }));
   }catch(e){
     box.innerHTML = '<div class="sr-empty">Search failed (offline?)</div>'; box.style.display='block';
   }
 }
-function locateMe(){
-  if(!navigator.geolocation){ alert('Geolocation is not available in this browser.'); return; }
+// GPS position: shown as a blue cross on the map; the crosshair picker is
+// independent of it. `center` moves the picker there and loads the profile.
+function gpsIcon(){
+  return L.divIcon({className:'gps-marker', iconSize:[22,22], iconAnchor:[11,11], html:
+    '<svg viewBox="0 0 22 22" width="22" height="22"><g fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round"><path d="M11 1.5v6M11 14.5v6M1.5 11h6M14.5 11h6"/></g>'+
+    '<g fill="none" stroke="#1f8fb0" stroke-width="1.8" stroke-linecap="round"><path d="M11 1.5v6M11 14.5v6M1.5 11h6M14.5 11h6"/></g><circle cx="11" cy="11" r="1.6" fill="#1f8fb0"/></svg>'});
+}
+function placeGpsMarker(lat, lon, accuracy){
+  if(GPS_MARKER) GPS_MARKER.setLatLng([lat,lon]);
+  else GPS_MARKER = L.marker([lat,lon], {icon: gpsIcon(), interactive:false, keyboard:false, zIndexOffset:500}).addTo(PICK_MAP);
+  GPS_MARKER.bindTooltip(`your position${accuracy ? ' ±'+Math.round(accuracy)+' m' : ''}`, {direction:'top', offset:[0,-8]});
+}
+function acquireGps(center){
+  if(!navigator.geolocation){ if(center) appInfo('Geolocation is not available in this browser.'); return; }
   const btn = $('gpsBtn'); btn.classList.add('geo-spin');
   navigator.geolocation.getCurrentPosition(pos=>{
     btn.classList.remove('geo-spin');
-    const {latitude:lat, longitude:lon} = pos.coords;
-    if(GPS_MARKER) GPS_MARKER.setLatLng([lat,lon]); else GPS_MARKER = L.circleMarker([lat,lon], {radius:7, color:'#3fa9ff', weight:2, fillColor:'#3fa9ff', fillOpacity:.4}).addTo(PICK_MAP);
-    goToPlace(lat, lon, null, 13, true);
+    const {latitude:lat, longitude:lon, accuracy} = pos.coords;
+    placeGpsMarker(lat, lon, accuracy);
+    if(center) goToPlace(lat, lon, null, 13, true);
   }, err=>{
     btn.classList.remove('geo-spin');
-    alert('Position not available: '+err.message);
+    if(center) appInfo('Position not available: '+escapeHtml(err.message)+'. Allow location access for this site, or pick the place on the map.');
   }, {enableHighAccuracy: true, timeout: 12000, maximumAge: 60000});
 }
+function locateMe(){ acquireGps(true); }
 
 // ---------- models: list (left) and chips (above chart) ----------
 function modelInHorizonAt(m, idx){
@@ -346,12 +453,14 @@ function renderModelList(){
     const checked = state.selectedModels.includes(m.key);
     const nLev = m.levels ? (cachedLevels(m.key) || LEVEL_SETS[m.levels].length) : 0;
     const until = app.ok ? fmtLocal(estimateModelValidUntil(m, now).getTime(), true) : '';
+    const run = estimateModelRun(m, now), age = estimateRunAgeHours(m, now);
+    const runTxt = `run ${String(run.getUTCHours()).padStart(2,'0')}Z (${age<1?'<1':Math.round(age)} h ago)`;
     return `<div class="model-row${app.ok?'':' off'}${inHorizon?'':' later'}" data-model="${m.key}">
       <input type="checkbox" data-model="${m.key}" ${checked?'checked':''} ${app.ok?'':'disabled'} title="show as curve">
       <div class="mr-body" data-toggle="${m.key}">
         <div class="mr-name">${m.label}${app.ok && !inHorizon ? ' <span class="badge">beyond horizon</span>' : ''}</div>
-        <div class="mr-meta">${m.provider} · ${m.gridKm} km · ${m.levels ? nLev+' lv' : 'no vertical data'}${m.note && app.ok ? ' · '+m.note : ''}</div>
-        <div class="mr-meta">${app.ok ? formatRunLabel(m, now)+' · to '+until : app.reason}</div>
+        <div class="mr-meta">${m.provider} · ${m.gridKm} km · ${m.levels ? nLev+' levels' : 'no vertical data'}${m.note && app.ok ? ' · '+m.note : ''}</div>
+        <div class="mr-meta">${app.ok ? runTxt+' · to '+until : app.reason}</div>
       </div>
       ${app.ok ? `<button class="mr-star${state.primaryModel===m.key?' on':''}" data-primary="${m.key}" title="make primary">${state.primaryModel===m.key?'★':'☆'}</button>` : ''}
     </div>`;
@@ -764,6 +873,7 @@ function syncSettingsControls(){
   $('themeBtn').textContent = document.documentElement.dataset.theme==='light' ? 'Dark' : 'Light';
   const dt = document.querySelector(`input[name=diagramType][value=${state.diagramType}]`); if(dt) dt.checked = true;
   const te = document.querySelector(`input[name=thetaE][value=${state.showThetaE?'on':'off'}]`); if(te) te.checked = true;
+  const td = document.querySelector(`input[name=timeDisplay][value=${state.timeDisplay==='utc'?'utc':'lt'}]`); if(td) td.checked = true;
   updateTaEditLink();
 }
 function bindSettings(){
@@ -771,6 +881,7 @@ function bindSettings(){
   document.addEventListener('click', e=>{ if($('settingsMenu').style.display!=='none' && !e.target.closest('.menu-wrap')) openMenu(false); });
   document.querySelectorAll('input[name=diagramType]').forEach(r=>r.addEventListener('change', ()=>{ if(r.checked){ state.diagramType = r.value; saveSettings(); if(state.rows) renderProfile(); } }));
   document.querySelectorAll('input[name=thetaE]').forEach(r=>r.addEventListener('change', ()=>{ if(r.checked){ state.showThetaE = r.value==='on'; saveSettings(); if(state.rows) draw(state.rows); } }));
+  document.querySelectorAll('input[name=timeDisplay]').forEach(r=>r.addEventListener('change', ()=>{ if(r.checked){ state.timeDisplay = r.value; saveSettings(); renderTimeControls(); renderModelList(); if(state.rows) renderProfileFacts(); } }));
   $('altitudeUnitSelect').addEventListener('change', e=>{
     const v = e.target.value;
     if(v==='fl' && !state.transitionAltConfirmed){ openTaModal('fl'); return; }
@@ -979,7 +1090,6 @@ function registerSw(){
 
   applySide(isNarrow() ? !startLoad : state.sideOpen !== false);
   initMap();
-  renderFavorites();
   bindSettings(); bindTaModal(); bindPrint(); bindKeyboard();
   setupChartTouch(); setupWindHandle();
   renderTimeControls();
@@ -993,21 +1103,15 @@ function registerSw(){
   document.addEventListener('click', e=>{ if(!e.target.closest('#searchWrap')) $('searchResults').style.display='none'; });
   $('gpsBtn').addEventListener('click', locateMe);
   $('loadBtn').addEventListener('click', ()=>loadProfile());
-  $('favBtn').addEventListener('click', ()=>{
-    const l = state.location; if(!l) return;
-    let list = favorites();
-    const i = list.findIndex(f=>Math.abs(f.lat-l.lat)<1e-4 && Math.abs(f.lon-l.lon)<1e-4);
-    if(i>=0) list.splice(i,1);
-    else {
-      const name = prompt('Name for this place', l.name || fmtCoord(l.lat,l.lon));
-      if(name==null) return;
-      list.push({name: name.trim() || fmtCoord(l.lat,l.lon), lat: l.lat, lon: l.lon});
-    }
-    lsSet(FAV_KEY, list); renderFavorites(); updatePlaceCard();
-  });
-  $('favList').addEventListener('click', e=>{
-    const b = e.target.closest('[data-fav]'); if(!b) return;
-    const f = favorites()[parseInt(b.dataset.fav,10)]; if(!f) return;
+  $('favBtn').addEventListener('click', saveCurrentPlace);
+  $('favMenuBtn').addEventListener('click', e=>{ e.stopPropagation(); const box = $('searchResults'); if(box.style.display==='block' && box.querySelector('.sr-head')) box.style.display='none'; else showFavDropdown(); });
+  $('searchInput').addEventListener('focus', ()=>{ if(!$('searchInput').value.trim()) showFavDropdown(); });
+  $('searchResults').addEventListener('click', e=>{
+    const x = e.target.closest('[data-fav-remove]'); if(x){ e.stopPropagation(); removeFavorite(parseInt(x.dataset.favRemove,10)); return; }
+    const it = e.target.closest('[data-fav]'); if(!it) return;
+    const f = favorites()[parseInt(it.dataset.fav,10)]; if(!f) return;
+    $('searchResults').style.display='none';
+    if(f.timezone) state.location = Object.assign(state.location||{}, {timezone: f.timezone});
     goToPlace(f.lat, f.lon, f.name, 12, true);
   });
   // time
@@ -1061,5 +1165,8 @@ function registerSw(){
   if(startLoad){
     resolvePoint(state.location.lat, state.location.lon);
     loadProfile();
+    acquireGps(false);           // marker only; the stored place stays
+  } else {
+    acquireGps(true);            // default place = GPS position
   }
 })();

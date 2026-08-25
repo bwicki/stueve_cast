@@ -262,7 +262,7 @@ const OpenMeteo = (function(){
     const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=8&language=en&format=json`;
     const j = await fetchJson(url);
     return (j.results||[]).map(r=>({
-      name: r.name, admin: [r.admin1, r.country].filter(Boolean).join(', '),
+      name: r.name, admin: [r.admin1, r.country].filter(Boolean).join(', '), country: r.country || '',
       lat: r.latitude, lon: r.longitude, elevation: r.elevation, timezone: r.timezone,
     }));
   }
@@ -280,8 +280,8 @@ const OpenMeteo = (function(){
     const j = await r.json();
     const a = j.address || {};
     const place = a.village || a.hamlet || a.town || a.city || a.municipality || a.locality || a.county || j.name || '';
-    const region = a.state || a.region || a.country || '';
-    return place ? (region ? `${place}, ${region}` : place) : (j.display_name||'').split(',').slice(0,2).join(',');
+    const country = a.country || '';
+    return place ? (country ? `${place}/${country}` : place) : (j.display_name||'').split(',').slice(0,2).join(',');
   }
 
   return {fetchModel, buildRows, surfaceAt, hasDataAt, geocode, locationInfo, reverseGeocode, callsToday,

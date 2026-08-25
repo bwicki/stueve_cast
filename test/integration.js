@@ -13,7 +13,7 @@ function synthResponse(url){
   if(u.hostname === 'geocoding-api.open-meteo.com'){
     return {results:[{name:'Pizol', admin1:'Sankt Gallen', country:'Switzerland', latitude:46.96, longitude:9.39, elevation:2227, timezone:'Europe/Zurich'}]};
   }
-  if(u.hostname === 'nominatim.openstreetmap.org') return {address:{village:'Bad Ragaz', state:'Sankt Gallen'}};
+  if(u.hostname === 'nominatim.openstreetmap.org') return {address:{village:'Bad Ragaz', state:'Sankt Gallen', country:'Switzerland'}};
   const vars = (u.searchParams.get('hourly')||'').split(',').filter(Boolean);
   if(u.searchParams.get('timezone') === 'auto'){
     return {elevation: 1980, timezone:'Europe/Zurich', utc_offset_seconds:7200, timezone_abbreviation:'CEST', hourly:{time:[0], temperature_2m:[20]}, hourly_units:{}};
@@ -96,9 +96,8 @@ const dom = new JSDOM(html, {
     Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', {get(){ return 500; }});
     window.HTMLElement.prototype.scrollIntoView = function(){};
     window.HTMLElement.prototype.setPointerCapture = function(){};
-    window.navigator.geolocation = {getCurrentPosition(ok){ ok({coords:{latitude:46.96, longitude:9.39}}); }};
+    window.navigator.geolocation = {getCurrentPosition(ok){ setTimeout(()=>ok({coords:{latitude:47.05, longitude:9.45, accuracy:12}}), 60); }};
     window.alert = m => errors.push('ALERT '+m);
-    window.prompt = () => 'Test place';
     window.matchMedia = () => ({matches:false, addListener(){}, removeListener(){}, addEventListener(){}, removeEventListener(){}});
     window.requestAnimationFrame = f => setTimeout(()=>f(Date.now()), 0);
   },
@@ -113,7 +112,12 @@ const sleep = ms => new Promise(r=>setTimeout(r, ms));
   const check = (c, m) => { if(c) console.log('  ok   '+m); else { failures++; console.log('  FAIL '+m); } };
   check(w.eval('typeof state') === 'object', 'scripts loaded, state exists');
   check(w.eval('PICK_MAP') != null, 'Leaflet map initialised');
-  check(d.getElementById('emptyState').style.display !== 'none' && d.getElementById('dataView').style.display === 'none', 'starts with the empty state');
+  // GPS default: marker + auto-load of the position
+  for(let i=0;i<60 && !w.eval('state.rows'); i++) await sleep(100);
+  await sleep(400);
+  check(w.eval('GPS_MARKER') != null && w.eval('state.loaded') && Math.abs(w.eval('state.loaded.lat')-47.05)<1e-6, 'GPS position marked and loaded as default place');
+  check(w.eval('state.loaded.name') === 'Bad Ragaz/Switzerland', 'reverse-geocoded name as place/country: '+w.eval('state.loaded.name'));
+  check(d.querySelectorAll('.leaflet-control-layers-expanded label').length === 2, 'open layer chooser with two base maps');
   check(d.getElementById('timeSlider').max > d.getElementById('timeSlider').min && d.querySelectorAll('#dayChips .chip').length > 10, 'time slider and day chips ready before any load');
   check(d.querySelectorAll('#modelList .model-row').length === w.eval('MODEL_CATALOG.length'), 'model list rendered from the catalog');
 
@@ -127,15 +131,40 @@ const sleep = ms => new Promise(r=>setTimeout(r, ms));
   for(let i=0;i<60 && (d.getElementById('loadingOverlay').style.display !== 'none' || !w.eval('state.rows')); i++) await sleep(100);
   await sleep(300);
   const loc = w.eval('state.loaded');
-  check(loc && loc.name && loc.name.startsWith('Pizol') && loc.timezone === 'Europe/Zurich' && loc.elevation === 1980, 'place resolved and loaded: '+JSON.stringify({name:loc.name, tz:loc.timezone, elev:loc.elevation}));
+  check(loc && loc.name === 'Pizol/Switzerland' && loc.timezone === 'Europe/Zurich' && loc.elevation === 1980, 'place resolved and loaded: '+JSON.stringify({name:loc.name, tz:loc.timezone, elev:loc.elevation}));
   check(d.getElementById('dataView').style.display === 'block' && d.getElementById('emptyState').style.display === 'none', 'profile view shown after auto-load');
   const rows = w.eval('state.rows');
   check(rows && rows.length > 10, 'rows for primary model: '+(rows&&rows.length));
   check(w.eval('state.primaryModel') === 'icon_d2', 'ICON-D2 is the default primary');
   check(d.getElementById('timeLabel').textContent.includes('CEST'), 'time in local zone: '+d.getElementById('timeLabel').textContent+' / '+d.getElementById('timeLabelUtc').textContent);
+  const utcRadio = d.querySelector('input[name=timeDisplay][value=utc]'); utcRadio.checked = true; utcRadio.dispatchEvent(new w.Event('change'));
+  check(d.getElementById('timeLabel').textContent.endsWith('UTC') && d.getElementById('timeLabelUtc').textContent.includes('CEST'), 'UTC toggle: '+d.getElementById('timeLabel').textContent+' / '+d.getElementById('timeLabelUtc').textContent);
+  check(d.querySelector('#modelList .mr-meta:last-child') && /levels/.test(d.getElementById('modelList').textContent) && /UTC/.test(d.getElementById('modelList').textContent), 'model list shows "levels" and follows the UTC toggle');
+  const ltRadio = d.querySelector('input[name=timeDisplay][value=lt]'); ltRadio.checked = true; ltRadio.dispatchEvent(new w.Event('change'));
+  check(d.getElementById('timeLabel').textContent.includes('CEST'), 'back to LT');
   check(d.getElementById('loadBtn').textContent === 'Loaded', 'load button shows loaded state');
-  d.getElementById('favBtn').click();
-  check(d.querySelectorAll('#favList .chip').length === 1, 'favorite saved');
+  // favorites: in-app dialog, dropdown list
+  d.getElementById('favBtn').click(); await sleep(60);
+  check(d.getElementById('dialogOverlay').style.display === 'flex' && d.getElementById('dialogInput').value === 'Pizol/Switzerland', 'in-app save dialog with prefilled name');
+  d.getElementById('dialogInput').value = 'Pizol launch site';
+  Array.from(d.querySelectorAll('#dialogActions button')).find(b=>b.textContent==='Save').click(); await sleep(60);
+  check(d.getElementById('dialogOverlay').style.display === 'none' && d.getElementById('favBtn').textContent === '★', 'place saved, star filled');
+  d.getElementById('favMenuBtn').click(); await sleep(30);
+  check(d.querySelectorAll('#searchResults .sr-item.fav').length === 1 && d.querySelector('#searchResults .sr-item.fav').textContent.includes('Pizol launch site'), 'saved places dropdown lists the favorite');
+  d.body.click();
+  d.getElementById('favBtn').click(); await sleep(60);
+  Array.from(d.querySelectorAll('#dialogActions button')).find(b=>b.textContent==='Rename').click(); await sleep(60);
+  d.getElementById('dialogInput').value = 'Pizol top';
+  Array.from(d.querySelectorAll('#dialogActions button')).find(b=>b.textContent==='Save').click(); await sleep(60);
+  check(JSON.parse(w.localStorage.getItem('sc_favorites_v1'))[0].name === 'Pizol top', 'favorite renamed via dialog');
+  d.getElementById('searchInput').value = ''; d.getElementById('searchInput').dispatchEvent(new w.Event('focus')); await sleep(30);
+  check(d.querySelector('#searchResults .sr-head') && d.getElementById('searchResults').style.display === 'block', 'empty search field on focus shows the saved places');
+  d.querySelector('#searchResults [data-fav-remove]').click(); await sleep(60);
+  Array.from(d.querySelectorAll('#dialogActions button')).find(b=>b.textContent==='Remove').click(); await sleep(60);
+  check(JSON.parse(w.localStorage.getItem('sc_favorites_v1')).length === 0 && d.getElementById('favBtn').textContent === '☆', 'favorite removed after in-app confirmation');
+  d.getElementById('favBtn').click(); await sleep(60);
+  Array.from(d.querySelectorAll('#dialogActions button')).find(b=>b.textContent==='Save').click(); await sleep(60);
+  d.body.click();
 
   // chips above the chart
   const chips = () => Array.from(d.querySelectorAll('#modelChips .model-chip')).map(c=>({k:c.dataset.chip, cls:c.className}));

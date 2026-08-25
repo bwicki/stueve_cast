@@ -1,5 +1,5 @@
 // StueveCast service worker: offline app shell + cached model data + map tiles.
-const VERSION = 'stuevecast-v0.11.0';
+const VERSION = 'stuevecast-v0.11.2';
 const SHELL_CACHE = VERSION + '-shell';
 const DATA_CACHE = VERSION + '-data';
 const TILE_CACHE = 'stuevecast-tiles';
