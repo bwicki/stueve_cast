@@ -19,126 +19,155 @@
 <link rel="stylesheet" href="css/s2-base.css">
 <link rel="stylesheet" href="css/app.css">
 </head>
-<body data-screen="location">
+<body>
 <div class="app">
 
-  <header>
-    <div class="header-top">
-      <div class="title-block">
-        <div class="eyebrow">Model sounding diagram</div>
-        <h1>StueveCast</h1>
-        <p id="subtitle">pick a place and an hour · <span id="versionStamp"></span></p>
-      </div>
-      <div class="header-right">
-        <img class="header-logo" alt="Wicki Partners Ballonteam" src="img/wicki-logo.png">
-        <button class="reset-btn icon-btn" id="settingsBtn" title="Settings">⚙</button>
-      </div>
+  <header class="topbar">
+    <div class="brand">
+      <span class="eyebrow">Model sounding diagram</span>
+      <h1>StueveCast</h1>
+      <span id="subtitle" class="subtitle">pick a place, then load a profile · <span id="versionStamp"></span></span>
+      <span id="printUrl" class="print-only"></span>
     </div>
+    <img class="header-logo" alt="Wicki Partners Ballonteam" src="img/wicki-logo.png">
   </header>
 
-  <!-- ========== Screen 1: location and time ========== -->
-  <section id="screen-location" class="screen active">
-    <div class="loc-toolbar">
-      <div id="searchWrap" class="search-wrap">
-        <input id="searchInput" type="search" placeholder="Search a place…" autocomplete="off" spellcheck="false">
-        <div id="searchResults" class="search-results" style="display:none;"></div>
-      </div>
-      <button class="reset-btn icon-btn" id="gpsBtn" title="Use my position">◎</button>
-    </div>
-    <div id="favList" class="chip-row" style="display:none;"></div>
-    <div class="map-wrap">
-      <div id="pickMap"></div>
-      <div class="crosshair" aria-hidden="true">
-        <svg viewBox="0 0 40 40" width="40" height="40"><circle cx="20" cy="20" r="9" fill="none" stroke="#f0a63d" stroke-width="2"/><path d="M20 2v10M20 28v10M2 20h10M28 20h10" stroke="#f0a63d" stroke-width="2"/><circle cx="20" cy="20" r="1.6" fill="#f0a63d"/></svg>
-      </div>
-      <div class="map-hint">Move the map under the crosshair</div>
-    </div>
-    <div class="place-card">
-      <div class="place-main">
-        <div id="placeName" class="place-name">Map centre</div>
-        <div id="placeCoords" class="place-coords"></div>
-        <div id="placeStatus" class="place-status"></div>
-      </div>
-      <button class="reset-btn" id="favBtn">☆ Save place</button>
-    </div>
-    <div class="section-title">Valid time</div>
-    <div id="dayChips" class="chip-row scroll"></div>
-    <div class="hour-row">
-      <input type="range" id="hourSlider" min="0" max="23" step="1" value="12">
-      <span id="hourLabel" class="hour-label">12:00</span>
-    </div>
-    <div id="timeSummary" class="time-summary"></div>
-    <div class="loc-actions">
-      <button class="reset-btn" id="lastProfileBtn" style="display:none;">↩ Last profile</button>
-      <button class="primary-btn" id="chooseModelsBtn">Choose models ›</button>
-    </div>
-  </section>
+  <div id="workspace">
 
-  <!-- ========== Screen 2: models ========== -->
-  <section id="screen-models" class="screen">
-    <div class="screen-head">
-      <button class="reset-btn icon-btn" id="modelsBackBtn" title="Back">‹</button>
-      <div class="screen-title">Weather models</div>
-    </div>
-    <div id="modelSummary" class="model-summary"></div>
-    <div id="modelList" class="model-list"></div>
-    <div class="model-foot">Sorted by grid spacing. The default is the finest grid with the newest estimated run; the first checked model is the primary one, others are drawn as dashed comparison curves. Up to four models at once.</div>
-    <div class="loc-actions">
-      <button class="primary-btn" id="showProfileBtn">Show profile ›</button>
-    </div>
-  </section>
-
-  <!-- ========== Screen 3: profile ========== -->
-  <section id="screen-profile" class="screen">
-    <div id="loadingOverlay" class="loading" style="display:none;"><div class="spinner"></div><div id="loadingMsg">Loading…</div></div>
-    <div class="screen-head profile-head">
-      <button class="reset-btn icon-btn" id="profileBackBtn" title="Change place or time">‹</button>
-      <div class="screen-title" id="profileTitle">Profile</div>
-      <div class="head-actions">
-        <button class="reset-btn icon-btn" id="inspectLockBtn" title="Lock touch inspect mode (one finger reads values, no page scroll)">✛</button>
-        <button class="reset-btn icon-btn" id="shareBtn" title="Share link">🔗</button>
-        <button class="reset-btn icon-btn" id="printBtn" title="Print">🖨</button>
-      </div>
-    </div>
-    <div id="modelChips" class="chip-row"></div>
-    <div id="profileNotice" class="notice" style="display:none;"></div>
-
-    <div id="dataView">
-      <div class="chart-card">
-        <div class="chart-row">
-          <div id="altRangeCol">
-            <span class="zoom-label">ZOOM</span>
-            <button class="reset-btn" id="altRangeReset" title="Reset zoom">⟲</button>
-            <div id="altRangeTrack">
-              <div class="alt-track-line"></div>
-              <div id="altRangeFill"></div>
-              <input type="range" class="vslider" id="altRangeMax" min="0" max="1000" value="1000" title="Upper limit of the shown altitude band">
-              <input type="range" class="vslider" id="altRangeMin" min="0" max="1000" value="0" title="Lower limit of the shown altitude band">
-            </div>
+    <!-- ========== left column: place · time · models ========== -->
+    <aside id="sidePanel">
+      <div class="sp-section">
+        <div class="loc-toolbar">
+          <div id="searchWrap" class="search-wrap">
+            <input id="searchInput" type="search" placeholder="Search a place…" autocomplete="off" spellcheck="false">
+            <div id="searchResults" class="search-results" style="display:none;"></div>
           </div>
-          <div class="chart-wrap" id="chartWrap">
-            <canvas id="chart"></canvas>
-            <canvas id="chartCursorOverlay" style="position:absolute;top:0;left:0;pointer-events:none;"></canvas>
-            <div id="tooltip"></div>
-            <div id="windPanelHandle" title="Drag to give the wind panel or the temperature plot more room · double-tap resets">
-              <div class="grip"></div>
-            </div>
-            <button class="reset-btn export-icon-btn" id="exportPngBtn" title="Export / share PNG">⬇</button>
+          <button class="reset-btn icon-btn" id="gpsBtn" title="Use my position">◎</button>
+        </div>
+        <div id="favList" class="chip-row" style="display:none;"></div>
+        <div class="map-wrap">
+          <div id="pickMap"></div>
+          <div class="crosshair" aria-hidden="true">
+            <svg viewBox="0 0 40 40" width="40" height="40"><circle cx="20" cy="20" r="9" fill="none" stroke="#f0a63d" stroke-width="2"/><path d="M20 2v10M20 28v10M2 20h10M28 20h10" stroke="#f0a63d" stroke-width="2"/><circle cx="20" cy="20" r="1.6" fill="#f0a63d"/></svg>
           </div>
         </div>
-
-        <div id="scrubber-row">
-          <div class="time-row">
-            <button class="reset-btn icon-btn" id="stepBack" title="Previous hour (←)">‹</button>
-            <button class="reset-btn icon-btn" id="playBtn" title="Play / pause (space)">▶</button>
-            <div class="time-slider-wrap">
-              <input type="range" id="timeSlider" min="0" max="1" value="0" step="1" title="Forecast hour">
-              <div id="timeTicks" class="time-ticks"></div>
-            </div>
-            <button class="reset-btn icon-btn" id="stepFwd" title="Next hour (→)">›</button>
+        <div class="place-card">
+          <div class="place-main">
+            <div id="placeName" class="place-name">Map centre</div>
+            <div id="placeCoords" class="place-coords"></div>
+            <div id="placeStatus" class="place-status"></div>
           </div>
-          <div class="time-labels"><span id="timeLabel"></span><span id="timeLead" class="lead"></span><span id="timeLabelUtc" class="utc"></span></div>
-          <div class="stat-strip" id="scrubberReadout"></div>
+          <button class="reset-btn icon-btn" id="favBtn" title="Save / remove favorite">☆</button>
+          <button class="primary-btn small" id="loadBtn" title="Load the profile for the crosshair position">Load</button>
+        </div>
+      </div>
+
+      <div class="sp-section">
+        <div class="section-title">Valid time <span id="timeZoneNote" class="dim"></span></div>
+        <div class="time-readout">
+          <button class="time-main" id="timeLabelBtn" title="Enter a date and time"><span id="timeLabel">—</span></button>
+          <span id="timeLead" class="lead"></span>
+          <span id="timeLabelUtc" class="utc"></span>
+          <input type="datetime-local" id="timePicker" class="time-picker">
+        </div>
+        <div id="dayChips" class="chip-row scroll"></div>
+        <div class="time-row">
+          <button class="reset-btn icon-btn" id="stepBack" title="Previous hour (←)">‹</button>
+          <button class="reset-btn icon-btn" id="playBtn" title="Play / pause (space)">▶</button>
+          <div class="time-slider-wrap">
+            <input type="range" id="timeSlider" min="0" max="1" value="0" step="1" title="Forecast hour">
+            <div id="timeTicks" class="time-ticks"></div>
+          </div>
+          <button class="reset-btn icon-btn" id="stepFwd" title="Next hour (→)">›</button>
+        </div>
+      </div>
+
+      <div class="sp-section">
+        <div class="section-title">Models <span id="modelSummary" class="dim"></span></div>
+        <div id="modelList" class="model-list"></div>
+        <div class="model-foot">Sorted by grid spacing. ★ = primary model (drives the analytics); other checked models are dashed comparison curves. Up to four at once. Models are also listed as chips above the chart while the chosen hour lies inside their horizon.</div>
+      </div>
+    </aside>
+    <div id="sideHandle" title="Hide / show the place, time and model panel"><span>‹</span></div>
+
+    <!-- ========== centre column: chart ========== -->
+    <main id="centerCol">
+      <div id="loadingOverlay" class="loading" style="display:none;"><div class="spinner"></div><div id="loadingMsg">Loading…</div></div>
+      <div class="toolbar">
+        <div id="modelChips" class="chip-row" title="Models that cover this place and hour: tap to add or remove"></div>
+        <div class="head-actions">
+          <button class="reset-btn icon-btn" id="inspectLockBtn" title="Lock touch inspect mode (one finger reads values, no page scroll)">✛</button>
+          <button class="reset-btn icon-btn" id="shareBtn" title="Share link (L)">🔗</button>
+          <button class="reset-btn icon-btn" id="printBtn" title="Print (P)">🖨</button>
+          <div class="menu-wrap">
+            <button class="reset-btn icon-btn" id="settingsBtn" title="Settings" aria-haspopup="true">☰</button>
+            <div id="settingsMenu" class="menu" style="display:none;">
+              <div class="menu-row"><span>Altitude</span>
+                <select id="altitudeUnitSelect"><option value="amsl">m AMSL</option><option value="agl">m AGL</option><option value="ft">ft</option><option value="fl">FL</option></select></div>
+              <div class="menu-row ta-row" id="taEditLink" style="display:none;"><span>Transition altitude</span><span class="ta-link"><span id="taEditLinkValue"></span> ft · edit</span></div>
+              <div class="menu-row"><span>Speed</span>
+                <select id="speedUnitSelect"><option value="kmh">km/h</option><option value="kt">kt</option></select></div>
+              <div class="menu-row"><span>Wind column</span>
+                <select id="windDisplayModeSelect"><option value="barb">Barbs</option><option value="direction">Direction</option></select></div>
+              <div class="menu-row"><span>Level dots</span><button class="reset-btn mini" id="levelDotsBtn">On</button></div>
+              <div class="menu-row"><span>Cloud shading ≥ RH %</span><input id="cloudThreshInput" type="number" min="20" max="100" step="5" value="85"></div>
+              <div class="menu-row"><span>Play speed</span>
+                <select id="playSpeedSelect"><option value="0.5">½ h/s</option><option value="1" selected>1 h/s</option><option value="2">2 h/s</option><option value="4">4 h/s</option></select></div>
+              <div class="menu-row"><span>Theme</span><button class="reset-btn mini" id="themeBtn">Dark</button></div>
+              <div class="menu-row"><span>Open-Meteo key</span><input id="apiKeyInput" type="text" placeholder="free tier" autocomplete="off"></div>
+              <div class="menu-row"><span id="callsToday" class="dim"></span><button class="reset-btn mini" id="refreshBtn">↻ Reload data</button></div>
+              <div class="menu-row"><span>Display defaults</span><button class="reset-btn mini" id="resetConfigBtn">Reset</button></div>
+              <div class="menu-row"><span class="dim">← → hour · space play · E png · L link · P print · T theme</span></div>
+              <div class="menu-row"><button class="reset-btn mini" id="aboutBtn">ℹ About / license</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="diagram-controls">
+        <div class="seg" role="radiogroup" aria-label="Diagram type">
+          <label><input type="radio" name="diagramType" value="stuve" checked><span>Stüve</span></label>
+          <label><input type="radio" name="diagramType" value="emagram"><span>Emagram</span></label>
+          <label><input type="radio" name="diagramType" value="skewt"><span>Skew-T</span></label>
+        </div>
+        <div class="seg" role="radiogroup" aria-label="Theta-E curve">
+          <span class="seg-label">Theta-E</span>
+          <label><input type="radio" name="thetaE" value="off" checked><span>Off</span></label>
+          <label><input type="radio" name="thetaE" value="on"><span>On</span></label>
+        </div>
+        <div class="time-strip">
+          <button class="reset-btn icon-btn tiny" id="stepBack2" title="Previous hour (←)">‹</button>
+          <span id="timeStripLabel">—</span>
+          <button class="reset-btn icon-btn tiny" id="stepFwd2" title="Next hour (→)">›</button>
+        </div>
+      </div>
+      <div id="profileNotice" class="notice" style="display:none;"></div>
+      <div id="emptyState" class="empty-state">
+        <div class="empty-title">No profile loaded</div>
+        <div>Move the map so the crosshair sits on your site (or search a place, or use ◎ for your position), then press <b>Load</b>. Models that cover the place and hour appear as chips above the chart; the ☰ menu holds units and display options.</div>
+      </div>
+
+      <div id="dataView" style="display:none;">
+        <div class="chart-card">
+          <div class="chart-row">
+            <div id="altRangeCol">
+              <span class="zoom-label">ZOOM</span>
+              <button class="reset-btn" id="altRangeReset" title="Reset zoom">⟲</button>
+              <div id="altRangeTrack">
+                <div class="alt-track-line"></div>
+                <div id="altRangeFill"></div>
+                <input type="range" class="vslider" id="altRangeMax" min="0" max="1000" value="1000" title="Upper limit of the shown altitude band">
+                <input type="range" class="vslider" id="altRangeMin" min="0" max="1000" value="0" title="Lower limit of the shown altitude band">
+              </div>
+            </div>
+            <div class="chart-wrap" id="chartWrap">
+              <canvas id="chart"></canvas>
+              <canvas id="chartCursorOverlay" style="position:absolute;top:0;left:0;pointer-events:none;"></canvas>
+              <div id="tooltip"></div>
+              <div id="windPanelHandle" title="Drag to give the wind panel or the temperature plot more room · double-tap resets"><div class="grip"></div></div>
+              <button class="reset-btn export-icon-btn" id="exportPngBtn" title="Export / share PNG (E)">⬇</button>
+            </div>
+          </div>
+          <div class="legend" id="legend"></div>
         </div>
 
         <div id="panelsRow">
@@ -170,67 +199,31 @@
             </div>
           </div>
         </div>
-        <div class="legend" id="legend"></div>
       </div>
+    </main>
 
+    <!-- ========== right column: facts · diagnostics · analytics · comments ========== -->
+    <aside id="rightCol">
       <div class="section-title">Profile facts</div>
-      <div class="stat-strip" id="statStrip"></div>
+      <div class="stat-strip dense" id="statStrip"></div>
+      <div class="section-title">Surface &amp; model diagnostics <span class="dim">this hour</span></div>
+      <div class="stat-strip dense" id="diagStrip"></div>
       <div class="section-title">Profile analytics</div>
-      <div class="stat-strip" id="thermoStrip"></div>
+      <div class="stat-strip dense" id="thermoStrip"></div>
       <div class="section-title">Analytical comments</div>
       <div id="analyticalComments">
         <button class="stat-info-btn" id="commentsInfoBtn" data-info-key="analyticalComments">i</button>
         <div id="analyticalCommentsList"></div>
       </div>
-      <div id="printLink" class="print-only"></div>
-    </div>
-  </section>
-
-  <footer>
-    x = temperature (°C) · y = (p / 1000 hPa)^0.286 in Stüve mode (ln p for Emagram and Skew-T), ground at the bottom ·
-    dew point via Magnus formula from model relative humidity · dry adiabats: T = θ·y · moist adiabats: pseudoadiabatic integration (Bolton 1980) ·
-    one wind barb per model level (kt) · dots mark the real model levels, the curves in between are interpolated.<br>
-    Weather data by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0) ·
-    map tiles © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors and
-    <a href="https://opentopomap.org" target="_blank" rel="noopener">OpenTopoMap</a> (CC BY-SA) · place search by Open-Meteo geocoding, place names by Nominatim.
-    Model run times are estimates from each model's cycle. Automated forecast diagnostics — not a substitute for an official forecast.
-  </footer>
-</div>
-
-<!-- ========== settings sheet ========== -->
-<div id="settingsBackdrop" class="backdrop" style="display:none;"></div>
-<aside id="settingsSheet" class="sheet">
-  <div class="sheet-head"><div class="screen-title">Settings</div><button class="reset-btn icon-btn" id="settingsClose" title="Close">✕</button></div>
-  <div class="sheet-body">
-    <div class="section-title">Diagram</div>
-    <label class="field"><span>Diagram type</span>
-      <select id="diagramTypeSelect"><option value="stuve">Stüve</option><option value="emagram">Emagram</option><option value="skewt">Skew-T</option></select></label>
-    <label class="field"><span>Altitude <span id="taEditLink" class="ta-link" style="display:none;">TA <span id="taEditLinkValue"></span> ft (edit)</span></span>
-      <select id="altitudeUnitSelect"><option value="amsl">m AMSL</option><option value="agl">m AGL</option><option value="ft">ft</option><option value="fl">Flight level</option></select></label>
-    <label class="field"><span>Speed</span>
-      <select id="speedUnitSelect"><option value="kmh">km/h</option><option value="kt">kt</option></select></label>
-    <label class="field"><span>Wind column</span>
-      <select id="windDisplayModeSelect"><option value="barb">Barbs</option><option value="direction">Direction</option></select></label>
-    <div class="field"><span>Theta-E curve</span><button class="reset-btn" id="thetaEToggleBtn">Off</button></div>
-    <div class="field"><span>Level dots</span><button class="reset-btn" id="levelDotsBtn">On</button></div>
-    <label class="field"><span>Cloud shading from</span>
-      <span class="inline"><input id="cloudThreshInput" type="number" min="20" max="100" step="5" value="85"> % RH</span></label>
-    <div class="section-title">Playback and display</div>
-    <label class="field"><span>Play speed</span>
-      <select id="playSpeedSelect"><option value="0.5">½ h/s</option><option value="1" selected>1 h/s</option><option value="2">2 h/s</option><option value="4">4 h/s</option></select></label>
-    <div class="field"><span>Theme</span><button class="reset-btn" id="themeBtn">🌗 Switch to dark</button></div>
-    <div class="section-title">Data</div>
-    <label class="field"><span>Open-Meteo API key (optional, commercial plan)</span>
-      <input id="apiKeyInput" type="text" placeholder="leave empty for the free tier" autocomplete="off"></label>
-    <div id="callsToday" class="hint"></div>
-    <div class="field"><span>Reload model data</span><button class="reset-btn" id="refreshBtn">↻ Refresh now</button></div>
-    <div class="field"><span>Display defaults</span><button class="reset-btn" id="resetConfigBtn">Reset</button></div>
-    <div class="section-title">Keyboard (iPad / desktop)</div>
-    <div class="hint">← → hour · space play/pause · E export PNG · L share link · P print · T theme</div>
-    <div class="section-title">About</div>
-    <button class="reset-btn" id="aboutBtn">ℹ About StueveCast</button>
+      <div class="attribution">
+        Weather data by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0) ·
+        maps © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors,
+        <a href="https://opentopomap.org" target="_blank" rel="noopener">OpenTopoMap</a> (CC BY-SA) · names by Nominatim ·
+        run times estimated · automated forecast diagnostics, not an official forecast.
+      </div>
+    </aside>
   </div>
-</aside>
+</div>
 
 <!-- ========== overlays ========== -->
 <div id="infoModalOverlay">
@@ -253,7 +246,7 @@
 <div id="printModalOverlay" class="modal-overlay" style="display:none;">
   <div class="modal-box">
     <div class="modal-title">Print with side panels?</div>
-    <div class="modal-text">Hodograph, vertical velocity and Theta-E can be included, or left out so the main diagram fills the page.</div>
+    <div class="modal-text">Hodograph, vertical velocity and Theta-E can be included, or left out so the main diagram fills the page. Both variants fit on one A4 page.</div>
     <div class="modal-actions"><button class="reset-btn" id="printCancelBtn">Cancel</button><button class="reset-btn" id="printWithoutPanelsBtn">Without panels</button><button class="primary-btn" id="printWithPanelsBtn">With panels</button></div>
   </div>
 </div>
@@ -273,9 +266,9 @@
     <div class="modal-title">StueveCast — Model Sounding Diagram</div>
     <div class="modal-text">
       <p><b>License:</b> custom, not open-source. Using the app is permitted; modifying, redistributing, or publishing a derivative version needs the copyright holder's prior written permission and must keep attribution.</p>
-      <p>StueveCast draws Stüve, Emagram and Skew-T diagrams from numerical weather model profiles for any place and forecast hour, using the diagram and the fourteen analytics fields of the S2 Radiosonde Sounding Diagram tool. Pick a place on the map (or search, or use your position), pick an hour, pick one or more models. The first checked model is the primary one and drives the analytics; the others are drawn as dashed comparison curves.</p>
-      <p><b>Reading the chart:</b> dots mark the real model levels; everything in between is interpolated. The green line is the model ground, which can differ from the real terrain. Drag the amber handle between the temperature plot and the wind-speed panel to give either one more room (double-tap resets). On a touch screen press and hold on the chart to read values, or lock the ✛ mode; pinch to zoom the altitude band, or use the two sliders on the left. On phones the profile opens zoomed to the lower part of the column (about the lowest 10 km); ⟲ shows the full column.</p>
-      <p><b>Time:</b> the slider covers every hour the selected models provide (up to 16 days for the global models). Curves of a model disappear when the hour lies beyond its horizon. Model run times are estimated from each model's cycle.</p>
+      <p>StueveCast draws Stüve, Emagram and Skew-T diagrams from numerical weather model profiles for any place and forecast hour, using the diagram and the fourteen analytics fields of the S2 Radiosonde Sounding Diagram tool. Left panel: place (map crosshair, search, position), valid time and the model list; ‹ hides the panel. Chips above the chart list every model that covers the place and hour: tap to add, × to remove, tap a comparison chip to make it primary. The primary model drives the analytics; the others are dashed comparison curves.</p>
+      <p><b>Reading the chart:</b> dots mark the real model levels; everything in between is interpolated. The green line is the model ground, which can differ from the real terrain. Drag the amber handle between the temperature plot and the wind-speed panel to give either one more room (double-tap resets). On a touch screen press and hold on the chart to read values, or lock the ✛ mode; pinch to zoom the altitude band, or use the two sliders on the left of the chart. On phones the profile opens zoomed to the lower ~10 km; ⟲ shows the full column.</p>
+      <p><b>Time:</b> one slider covers every hour up to the longest model horizon (16 days); day chips jump, ‹ › step, ▶ animates. Model chips appear and disappear as the hour enters or leaves their horizon. Run times are estimated from each model's cycle.</p>
       <p><b>Offline:</b> the app shell and the last fetched profiles are cached, so the slider keeps working without a connection.</p>
       <p><b>Data:</b> Open-Meteo (CC BY 4.0) with pressure-level output of DWD ICON, Météo-France AROME/ARPEGE, NOAA GFS/HRRR, ECMWF IFS/AIFS, UK Met Office, ECCC GEM and JMA. MeteoSwiss ICON-CH1/CH2 have no pressure levels on Open-Meteo yet and are planned for a later version. Map tiles by OpenStreetMap and OpenTopoMap, place search by Open-Meteo geocoding, place names by Nominatim. Includes Leaflet (BSD-2-Clause) and qrcodejs (MIT).</p>
     </div>

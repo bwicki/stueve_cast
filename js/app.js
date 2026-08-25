@@ -1,10 +1,9 @@
-// ---- StueveCast application: screens, map, time slider, models, rendering pipeline ----
+// ---- StueveCast application (single-screen cockpit) ----
 // Loaded last; relies on the globals from core.js, info.js, analytics.js,
-// draw.js, models.js and openmeteo.js (classic scripts sharing one scope,
-// the same way the single-file S2 tool worked).
+// draw.js, models.js and openmeteo.js (classic scripts sharing one scope).
 
-const APP_VERSION = 'v0.9.0 (2026-08-25)';
-const SESSION_KEY = 'sc_session_v1';
+const APP_VERSION = 'v0.10.0 (2026-08-25)';
+const SESSION_KEY = 'sc_session_v2';
 const SETTINGS_KEY = 'sc_settings_v1';
 const FAV_KEY = 'sc_favorites_v1';
 const $ = id => document.getElementById(id);
@@ -24,6 +23,7 @@ function saveSettings(){
   o.playSpeed = playSpeed;
   o.apiKey = state.apiKey || '';
   o.inspectLock = !!state.inspectLock;
+  o.sideOpen = state.sideOpen !== false;
   lsSet(SETTINGS_KEY, o);
 }
 function loadSettings(){
@@ -34,9 +34,11 @@ function loadSettings(){
   if(o.playSpeed) playSpeed = o.playSpeed;
   if(o.apiKey) state.apiKey = o.apiKey;
   state.inspectLock = !!o.inspectLock;
+  state.sideOpen = o.sideOpen !== false;
 }
 
 // ---------- time helpers (location time zone) ----------
+function activeLoc(){ return state.loaded || state.location || null; }
 function tzOffsetMs(utcMs, timeZone){
   try{
     const f = new Intl.DateTimeFormat('en-US', {timeZone, hourCycle:'h23', year:'numeric', month:'numeric', day:'numeric', hour:'numeric', minute:'numeric', second:'numeric'});
@@ -45,30 +47,30 @@ function tzOffsetMs(utcMs, timeZone){
     const asUtc = Date.UTC(p.year, p.month-1, p.day, p.hour===24?0:p.hour, p.minute, p.second);
     return asUtc - utcMs;
   }catch(e){
-    return (state.location && state.location.utcOffsetSec ? state.location.utcOffsetSec*1000 : 0);
+    const l = activeLoc();
+    return (l && l.utcOffsetSec ? l.utcOffsetSec*1000 : 0);
   }
 }
-function locTz(){ return (state.location && state.location.timezone) || null; }
-// wall-clock components in the location's zone for a UTC ms timestamp
+function locTz(){ const l = activeLoc(); return (l && l.timezone) || null; }
 function localParts(utcMs){
   const off = tzOffsetMs(utcMs, locTz()||'UTC');
   const d = new Date(utcMs + off);
   return {y:d.getUTCFullYear(), m:d.getUTCMonth(), d:d.getUTCDate(), h:d.getUTCHours(), min:d.getUTCMinutes(), dow:d.getUTCDay(), off};
 }
-function zonedToUtcMs(y, m, d, h){
-  let guess = Date.UTC(y, m, d, h);
+function zonedToUtcMs(y, m, d, h, min){
   const tz = locTz()||'UTC';
+  let guess = Date.UTC(y, m, d, h, min||0);
   guess -= tzOffsetMs(guess, tz);
-  guess = Date.UTC(y, m, d, h) - tzOffsetMs(guess, tz);
+  guess = Date.UTC(y, m, d, h, min||0) - tzOffsetMs(guess, tz);
   return guess;
 }
 const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function tzAbbr(){ const l = activeLoc(); return l && l.tzAbbr ? ' '+l.tzAbbr : (l && l.timezone ? '' : ' UTC'); }
 function fmtLocal(utcMs, withDate){
   const p = localParts(utcMs);
   const hh = String(p.h).padStart(2,'0'), mm = String(p.min).padStart(2,'0');
-  const abbr = (state.location && state.location.tzAbbr) ? ' '+state.location.tzAbbr : '';
-  return withDate ? `${DOW[p.dow]} ${p.d} ${MON[p.m]} ${hh}:${mm}${abbr}` : `${DOW[p.dow]} ${hh}:${mm}${abbr}`;
+  return withDate ? `${DOW[p.dow]} ${p.d} ${MON[p.m]} ${hh}:${mm}${tzAbbr()}` : `${DOW[p.dow]} ${hh}:${mm}${tzAbbr()}`;
 }
 function fmtUtc(utcMs){
   const d = new Date(utcMs);
@@ -78,55 +80,151 @@ function fmtUtcDate(utcMs){
   const d = new Date(utcMs);
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')} ${fmtUtc(utcMs)}`;
 }
+function fmtCoord(lat, lon){
+  return `${Math.abs(lat).toFixed(4)}° ${lat>=0?'N':'S'} · ${Math.abs(lon).toFixed(4)}° ${lon>=0?'E':'W'}`;
+}
+function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-// ---------- screens ----------
-function showScreen(name){
-  ['location','models','profile'].forEach(s=>{
-    const el = $('screen-'+s);
-    el.classList.toggle('active', s===name);
+// ---------- timeline: hour 0 = today 00 UTC, one slider for everything ----------
+function initTimeline(){
+  const t0 = Math.floor(Date.now()/86400e3)*86400;
+  state.timeline = {t0, hours: TIMELINE_HOURS + 24};
+}
+function idxToMs(idx){ return (state.timeline.t0 + idx*3600)*1000; }
+function msToIdx(ms){ return Math.round((ms/1000 - state.timeline.t0)/3600); }
+function nowIdx(){ return Math.floor((Date.now()/1000 - state.timeline.t0)/3600); }
+function currentTimeMs(){ return idxToMs(state.timeIdx); }
+function maxIdx(){
+  // furthest hour any applicable model is expected to cover (estimated for
+  // unfetched models, actual for fetched ones)
+  const l = state.location; let m = nowIdx()+1;
+  MODEL_CATALOG.forEach(mm=>{
+    if(mm.noVertical || (l && !modelCoversPoint(mm, l.lat, l.lon))) return;
+    const md = state.modelData[mm.key];
+    // fetched models: the hours actually delivered; others: estimated horizon
+    m = Math.max(m, md ? md.validRange[1]+md.offset : msToIdx(estimateModelValidUntil(mm).getTime()));
   });
-  document.body.dataset.screen = name;
-  if(name==='location' && PICK_MAP){ setTimeout(()=>PICK_MAP.invalidateSize(), 50); }
-  if(name==='profile' && state.rows){ setTimeout(()=>redrawAll(), 30); }
-  window.scrollTo(0,0);
+  return Math.min(m, state.timeline.hours-1);
+}
+function clampIdx(idx){ return Math.max(nowIdx(), Math.min(maxIdx(), idx)); }
+function setTimeIdx(idx, opts){
+  opts = opts || {};
+  idx = clampIdx(idx);
+  const changed = idx !== state.timeIdx;
+  state.timeIdx = idx;
+  renderTimeControls();
+  if(changed || opts.force) scheduleRender();
+}
+let renderPending = false;
+function scheduleRender(){
+  if(renderPending) return;
+  renderPending = true;
+  requestAnimationFrame(()=>{ renderPending = false; renderProfile(); });
+}
+function renderTimeControls(){
+  const ms = currentTimeMs();
+  const lead = (ms - Date.now())/3600e3;
+  const leadTxt = lead < 0.5 ? 'now' : `+${Math.round(lead)} h`;
+  $('timeLabel').textContent = fmtLocal(ms, true);
+  $('timeLead').textContent = leadTxt;
+  $('timeLabelUtc').textContent = fmtUtcDate(ms);
+  $('timeStripLabel').textContent = `${fmtLocal(ms, true)} · ${leadTxt}`;
+  const l = activeLoc();
+  $('timeZoneNote').textContent = l && l.timezone ? l.timezone : 'UTC';
+  const sl = $('timeSlider');
+  sl.min = String(nowIdx()); sl.max = String(maxIdx()); sl.value = String(state.timeIdx);
+  // day chips
+  const p = localParts(ms), todayP = localParts(Date.now());
+  const days = $('dayChips');
+  const nDays = Math.ceil((maxIdx()-nowIdx())/24)+1;
+  let html = '';
+  for(let d=0; d<=nDays; d++){
+    const dayMs = zonedToUtcMs(todayP.y, todayP.m, todayP.d + d, 12);
+    if(msToIdx(dayMs) - 12 > maxIdx()) break;
+    const dp = localParts(dayMs);
+    const sel = dp.y===p.y && dp.m===p.m && dp.d===p.d;
+    html += `<button class="chip${sel?' sel':''}" data-day="${d}" title="jump to this day, same hour">${d===0?'Today':DOW[dp.dow]+' '+dp.d}</button>`;
+  }
+  if(days.innerHTML !== html) days.innerHTML = html;
+  const selChip = days.querySelector('.sel'); if(selChip && selChip.scrollIntoView) selChip.scrollIntoView({block:'nearest', inline:'nearest'});
+  // tick marks at local midnights
+  const min = nowIdx(), max = maxIdx();
+  const midnights = [];
+  for(let i=min;i<=max;i++){ const q = localParts(idxToMs(i)); if(q.h===0) midnights.push({i, dow:q.dow}); }
+  const every = midnights.length > 12 ? 3 : (midnights.length > 7 ? 2 : 1);
+  let ticks = '';
+  midnights.forEach((m,k)=>{ const x = (m.i-min)/(max-min||1)*100; ticks += `<span style="left:${x.toFixed(2)}%"><i></i>${k%every===0 ? DOW[m.dow] : ''}</span>`; });
+  if($('timeTicks').innerHTML !== ticks) $('timeTicks').innerHTML = ticks;
+  // native picker value (local wall clock)
+  const pk = $('timePicker');
+  pk.value = `${p.y}-${String(p.m+1).padStart(2,'0')}-${String(p.d).padStart(2,'0')}T${String(p.h).padStart(2,'0')}:00`;
+}
+function jumpToDay(d){
+  const cur = localParts(currentTimeMs()), todayP = localParts(Date.now());
+  const ms = zonedToUtcMs(todayP.y, todayP.m, todayP.d + d, cur.h);
+  setTimeIdx(msToIdx(ms));
+}
+function onTimePicked(){
+  const v = $('timePicker').value; if(!v) return;
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(v); if(!m) return;
+  const ms = zonedToUtcMs(+m[1], +m[2]-1, +m[3], +m[4], 0);
+  setTimeIdx(msToIdx(ms));
+}
+let playTimer = null;
+function togglePlay(){
+  if(playTimer){ clearInterval(playTimer); playTimer = null; $('playBtn').textContent = '▶'; return; }
+  $('playBtn').textContent = '❚❚';
+  playTimer = setInterval(()=>{
+    if(state.timeIdx >= maxIdx()){ togglePlay(); return; }
+    setTimeIdx(state.timeIdx+1);
+  }, Math.round(1000/playSpeed));
 }
 
-// ---------- location screen ----------
-let PICK_MAP = null, GPS_MARKER = null, moveTimer = null, searchTimer = null;
-let targetTimeMs = null; // selected valid time (UTC ms)
+// ---------- side panel ----------
+function applySide(open){
+  state.sideOpen = open;
+  document.body.classList.toggle('side-collapsed', !open);
+  document.body.classList.toggle('side-open', open);
+  $('sideHandle').querySelector('span').textContent = open ? '‹' : '›';
+  if(PICK_MAP && open) setTimeout(()=>PICK_MAP.invalidateSize(), 220);
+  setTimeout(()=>{ if(state.rows) redrawAll(); }, 30);
+}
+function isNarrow(){ return window.innerWidth < 1000; }
 
+// ---------- map / place ----------
+let PICK_MAP = null, GPS_MARKER = null, moveTimer = null, searchTimer = null;
 function initMap(){
   const loc = state.location || {lat: 47.3769, lon: 8.5417};
   PICK_MAP = L.map('pickMap', {zoomControl: true, attributionControl: true}).setView([loc.lat, loc.lon], state.location ? 11 : 8);
-  const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'});
-  const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {maxZoom: 17, subdomains:'abc', attribution: 'Map data &copy; OpenStreetMap contributors, SRTM · Style &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)'});
+  PICK_MAP.attributionControl.setPrefix(false);
+  const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'});
+  const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {maxZoom: 17, subdomains:'abc', attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>, <a href="https://opentopomap.org">OpenTopoMap</a>'});
   const base = lsGet('sc_baselayer', 'topo')==='osm' ? osm : topo;
   base.addTo(PICK_MAP);
   L.control.layers({'OpenTopoMap': topo, 'OpenStreetMap': osm}, null, {position:'topright'}).addTo(PICK_MAP);
   PICK_MAP.on('baselayerchange', e=>lsSet('sc_baselayer', e.name==='OpenStreetMap' ? 'osm' : 'topo'));
   PICK_MAP.on('moveend', ()=>{
     const c = PICK_MAP.getCenter();
-    setPickedPoint(c.lat, c.lng, null, {silent: true});
+    setPickedPoint(c.lat, c.lng, null);
     clearTimeout(moveTimer);
     moveTimer = setTimeout(()=>resolvePoint(c.lat, c.lng), 650);
   });
   const c = PICK_MAP.getCenter();
-  if(state.location) updatePlaceCard(); else { setPickedPoint(c.lat, c.lng, null, {silent:true}); resolvePoint(c.lat, c.lng); }
+  if(state.location) updatePlaceCard(); else { setPickedPoint(c.lat, c.lng, null); resolvePoint(c.lat, c.lng); }
 }
-
-function setPickedPoint(lat, lon, name, opts){
-  opts = opts || {};
+function setPickedPoint(lat, lon, name){
   const prev = state.location || {};
-  const moved = !prev.lat || Math.abs(prev.lat-lat)>2e-4 || Math.abs(prev.lon-lon)>2e-4;
+  const moved = prev.lat==null || Math.abs(prev.lat-lat)>2e-4 || Math.abs(prev.lon-lon)>2e-4;
   state.location = Object.assign({}, prev, {lat, lon});
   if(name) state.location.name = name;
-  else if(moved && !opts.keepName) state.location.name = null;
-  if(moved){ state.location.elevation = null; state.location.timezone = prev.timezone; }
+  else if(moved) state.location.name = null;
+  if(moved) state.location.elevation = null;
   updatePlaceCard();
+  renderModelList();
 }
-
-let resolveSeq = 0;
+let resolveSeq = 0, lastResolved = null;
 async function resolvePoint(lat, lon){
+  if(lastResolved && Math.abs(lastResolved.lat-lat)<1e-6 && Math.abs(lastResolved.lon-lon)<1e-6 && state.location && state.location.elevation!=null) return;
   const seq = ++resolveSeq;
   $('placeStatus').textContent = 'looking up elevation and place name…';
   try{
@@ -135,29 +233,31 @@ async function resolvePoint(lat, lon){
       state.location && state.location.name ? Promise.resolve(state.location.name) : OpenMeteo.reverseGeocode(lat, lon).catch(()=>null),
     ]);
     if(seq !== resolveSeq) return;
-    if(info){ Object.assign(state.location, {elevation: info.elevation, timezone: info.timezone, utcOffsetSec: info.utcOffsetSec, tzAbbr: info.tzAbbr}); }
+    if(info){ Object.assign(state.location, {elevation: info.elevation, timezone: info.timezone, utcOffsetSec: info.utcOffsetSec, tzAbbr: info.tzAbbr}); lastResolved = {lat, lon}; }
     if(name) state.location.name = name;
+    if(state.loaded && Math.abs(state.loaded.lat-lat)<2e-4 && Math.abs(state.loaded.lon-lon)<2e-4) Object.assign(state.loaded, state.location);
     $('placeStatus').textContent = info ? '' : 'elevation lookup failed (offline?)';
   }catch(e){
     if(seq === resolveSeq) $('placeStatus').textContent = 'lookup failed';
   }
   updatePlaceCard();
-  renderTimePicker();
-  if(document.body.dataset.screen === 'profile' && state.timeline) renderProfile();
-  else if(document.body.dataset.screen === 'models') renderModelList();
+  renderTimeControls();
+  if(state.rows) renderProfileFacts();
 }
-
-function fmtCoord(lat, lon){
-  return `${Math.abs(lat).toFixed(4)}° ${lat>=0?'N':'S'} · ${Math.abs(lon).toFixed(4)}° ${lon>=0?'E':'W'}`;
+function locationIsLoaded(){
+  const l = state.location, d = state.loaded;
+  return !!(l && d && Math.abs(l.lat-d.lat)<2e-4 && Math.abs(l.lon-d.lon)<2e-4);
 }
 function updatePlaceCard(){
   const l = state.location; if(!l) return;
   $('placeName').textContent = l.name || 'Map centre';
-  $('placeCoords').textContent = fmtCoord(l.lat, l.lon) + (l.elevation!=null ? ` · ${Math.round(l.elevation)} m AMSL` : '');
+  $('placeCoords').textContent = fmtCoord(l.lat, l.lon) + (l.elevation!=null ? ` · ${Math.round(l.elevation)} m` : '');
   const fav = favorites().some(f=>Math.abs(f.lat-l.lat)<1e-4 && Math.abs(f.lon-l.lon)<1e-4);
-  $('favBtn').textContent = fav ? '★ Saved' : '☆ Save place';
+  $('favBtn').textContent = fav ? '★' : '☆';
+  const loaded = locationIsLoaded();
+  $('loadBtn').textContent = loaded ? 'Loaded' : 'Load';
+  $('loadBtn').classList.toggle('attention', !loaded && !!state.loaded);
 }
-
 function favorites(){ return lsGet(FAV_KEY, []); }
 function renderFavorites(){
   const list = favorites();
@@ -165,15 +265,15 @@ function renderFavorites(){
   wrap.innerHTML = list.map((f,i)=>`<button class="chip" data-fav="${i}" title="${fmtCoord(f.lat,f.lon)}">${escapeHtml(f.name)}</button>`).join('');
   wrap.style.display = list.length ? 'flex' : 'none';
 }
-function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-
-function goToPlace(lat, lon, name, zoom){
-  if(name) state.location = Object.assign(state.location||{}, {name});
-  setPickedPoint(lat, lon, name, {keepName: !!name});
+function goToPlace(lat, lon, name, zoom, load){
+  const prev = state.location || {};
+  state.location = Object.assign({}, prev, {lat, lon, name: name||null, elevation:null});
+  updatePlaceCard();
   PICK_MAP.setView([lat, lon], zoom || 12);
+  clearTimeout(moveTimer);
+  resolvePoint(lat, lon); // the debounced moveend lookup is skipped once this one resolved
+  if(load) loadProfile();
 }
-
-// search
 async function runSearch(q){
   const box = $('searchResults');
   if(!q || q.length < 2){ box.style.display='none'; return; }
@@ -187,13 +287,12 @@ async function runSearch(q){
       box.style.display='none';
       $('searchInput').value = r.name;
       state.location = Object.assign(state.location||{}, {timezone: r.timezone});
-      goToPlace(r.lat, r.lon, r.admin ? `${r.name}, ${r.admin.split(',')[0]}` : r.name, 12);
+      goToPlace(r.lat, r.lon, r.admin ? `${r.name}, ${r.admin.split(',')[0]}` : r.name, 12, true);
     }));
   }catch(e){
     box.innerHTML = '<div class="sr-empty">Search failed (offline?)</div>'; box.style.display='block';
   }
 }
-
 function locateMe(){
   if(!navigator.geolocation){ alert('Geolocation is not available in this browser.'); return; }
   const btn = $('gpsBtn'); btn.classList.add('geo-spin');
@@ -201,189 +300,185 @@ function locateMe(){
     btn.classList.remove('geo-spin');
     const {latitude:lat, longitude:lon} = pos.coords;
     if(GPS_MARKER) GPS_MARKER.setLatLng([lat,lon]); else GPS_MARKER = L.circleMarker([lat,lon], {radius:7, color:'#3fa9ff', weight:2, fillColor:'#3fa9ff', fillOpacity:.4}).addTo(PICK_MAP);
-    state.location = Object.assign(state.location||{}, {name: null});
-    goToPlace(lat, lon, null, 13);
+    goToPlace(lat, lon, null, 13, true);
   }, err=>{
     btn.classList.remove('geo-spin');
     alert('Position not available: '+err.message);
   }, {enableHighAccuracy: true, timeout: 12000, maximumAge: 60000});
 }
 
-// ---------- time picker (location screen) ----------
-function defaultTargetTime(){
-  const now = Date.now();
-  return Math.ceil(now/3600e3)*3600e3; // next full hour
+// ---------- models: list (left) and chips (above chart) ----------
+function modelInHorizonAt(m, idx){
+  const md = state.modelData[m.key];
+  if(md && md.validRange[0] >= 0) return OpenMeteo.hasDataAt(md, idx);
+  return idxToMs(idx) <= estimateModelValidUntil(m).getTime() + 1800e3;
 }
-function renderTimePicker(){
-  if(targetTimeMs==null) targetTimeMs = defaultTargetTime();
-  const now = Date.now();
-  const days = $('dayChips');
-  const p = localParts(targetTimeMs);
-  const todayP = localParts(now);
-  let html = '';
-  const maxDays = Math.ceil(TIMELINE_HOURS/24);
-  for(let d=0; d<=maxDays; d++){
-    const dayMs = zonedToUtcMs(todayP.y, todayP.m, todayP.d + d, 12);
-    const dp = localParts(dayMs);
-    const sel = dp.y===p.y && dp.m===p.m && dp.d===p.d;
-    html += `<button class="chip${sel?' sel':''}" data-day="${d}">${d===0?'Today':DOW[dp.dow]+' '+dp.d}</button>`;
-  }
-  days.innerHTML = html;
-  days.querySelectorAll('button').forEach(b=>b.addEventListener('click', ()=>{
-    const d = parseInt(b.dataset.day,10);
-    const cur = localParts(targetTimeMs);
-    let ms = zonedToUtcMs(todayP.y, todayP.m, todayP.d + d, cur.h);
-    if(ms < now) ms = defaultTargetTime();
-    targetTimeMs = ms;
-    renderTimePicker();
-  }));
-  const sel = days.querySelector('.sel'); if(sel) sel.scrollIntoView({block:'nearest', inline:'center'});
-  $('hourSlider').value = String(p.h);
-  $('hourLabel').textContent = `${String(p.h).padStart(2,'0')}:00`;
-  const lead = (targetTimeMs-now)/3600e3;
-  $('timeSummary').textContent = `${fmtLocal(targetTimeMs, true)} · ${fmtUtcDate(targetTimeMs)} · ${lead<1 ? 'now' : 'now +'+Math.round(lead)+' h'}`;
+function applicableModels(){
+  const l = state.location; if(!l) return [];
+  return MODEL_CATALOG.filter(m=>!m.noVertical && modelCoversPoint(m, l.lat, l.lon));
 }
-function onHourSlider(){
-  const h = parseInt($('hourSlider').value,10);
-  const cur = localParts(targetTimeMs);
-  let ms = zonedToUtcMs(cur.y, cur.m, cur.d, h);
-  if(ms < Date.now()-3600e3) ms = defaultTargetTime();
-  targetTimeMs = ms;
-  renderTimePicker();
-}
-
-// ---------- models screen ----------
 function renderModelList(){
-  const l = state.location;
+  const l = state.location; if(!l) return;
   const now = new Date();
-  const target = new Date(targetTimeMs);
-  const rows = MODEL_CATALOG.map(m=>({m, app: modelApplicability(m, l.lat, l.lon, target, now)}));
+  const rows = MODEL_CATALOG.map(m=>({m, app: modelApplicability(m, l.lat, l.lon, null, now)}));
   const okCount = rows.filter(r=>r.app.ok).length;
-  $('modelSummary').textContent = `${okCount} of ${rows.length} models cover ${l.name || 'this point'} at ${fmtLocal(targetTimeMs, true)}`;
-  const def = pickDefaultModel(l.lat, l.lon, target, now);
-  // keep previous selection where still applicable, otherwise use the default
-  let selected = (state.selectedModels||[]).filter(k=>rows.some(r=>r.m.key===k && r.app.ok));
-  if(!selected.length && def) selected = [def.key];
-  state.selectedModels = selected;
+  $('modelSummary').textContent = `${okCount} cover this place`;
   const cachedLevels = k => { try{ const c = JSON.parse(localStorage.getItem('sc_vars_v1_'+k)||'null'); return c && c.levels ? c.levels.length : null; }catch(e){ return null; } };
-  $('modelList').innerHTML = rows.map(({m, app})=>{
-    const checked = selected.includes(m.key);
+  const html = rows.map(({m, app})=>{
+    const checked = state.selectedModels.includes(m.key);
     const nLev = m.levels ? (cachedLevels(m.key) || LEVEL_SETS[m.levels].length) : 0;
     const until = app.ok ? fmtLocal(estimateModelValidUntil(m, now).getTime(), true) : '';
-    const isDef = def && def.key===m.key;
-    return `<label class="model-row${app.ok?'':' off'}">
-      <input type="checkbox" data-model="${m.key}" ${checked?'checked':''} ${app.ok?'':'disabled'}>
-      <span class="mr-body">
-        <span class="mr-name">${m.label}${isDef?' <span class="badge">default</span>':''}${checked && state.primaryModel===m.key?' <span class="badge alt">primary</span>':''}</span>
-        <span class="mr-meta">${m.provider} · ${m.gridKm} km · ${m.levels ? nLev+' levels' : 'no vertical data'}${m.note && app.ok ? ' · '+m.note : ''}</span>
-        <span class="mr-meta">${app.ok ? formatRunLabel(m, now)+' · to '+until : app.reason}</span>
-      </span>
-    </label>`;
+    const inHorizon = app.ok && state.timeline && modelInHorizonAt(m, state.timeIdx);
+    return `<div class="model-row${app.ok?'':' off'}" data-model="${m.key}">
+      <input type="checkbox" data-model="${m.key}" ${checked?'checked':''} ${app.ok?'':'disabled'} title="show as curve">
+      <div class="mr-body" data-toggle="${m.key}">
+        <div class="mr-name">${m.label}${app.ok && !inHorizon ? ' <span class="badge">beyond horizon</span>' : ''}</div>
+        <div class="mr-meta">${m.provider} · ${m.gridKm} km · ${m.levels ? nLev+' lv' : 'no vertical data'}${m.note && app.ok ? ' · '+m.note : ''}</div>
+        <div class="mr-meta">${app.ok ? formatRunLabel(m, now)+' · to '+until : app.reason}</div>
+      </div>
+      ${app.ok ? `<button class="mr-star${state.primaryModel===m.key?' on':''}" data-primary="${m.key}" title="make primary">${state.primaryModel===m.key?'★':'☆'}</button>` : ''}
+    </div>`;
   }).join('');
-  $('modelList').querySelectorAll('input[type=checkbox]').forEach(cb=>cb.addEventListener('change', ()=>{
-    const key = cb.dataset.model;
-    let sel = state.selectedModels.slice();
-    if(cb.checked){ if(!sel.includes(key)) sel.push(key); }
-    else sel = sel.filter(k=>k!==key);
-    if(sel.length > MAX_COMPARE+1){ cb.checked = false; alert(`Up to ${MAX_COMPARE+1} models can be shown at once (one primary + ${MAX_COMPARE} comparisons).`); return; }
-    // keep catalog order
-    state.selectedModels = MODEL_CATALOG.map(x=>x.key).filter(k=>sel.includes(k));
-    $('showProfileBtn').disabled = !state.selectedModels.length;
-  }));
-  $('showProfileBtn').disabled = !state.selectedModels.length;
+  if($('modelList').innerHTML !== html) $('modelList').innerHTML = html;
+}
+function renderModelChips(){
+  const wrap = $('modelChips');
+  if(!state.loaded){ wrap.innerHTML = ''; return; }
+  const avail = applicableModels().filter(m=>modelInHorizonAt(m, state.timeIdx));
+  const withData = modelsWithData();
+  // the model actually driving the chart (fallback when the chosen primary has no data this hour)
+  const primary = (state.renderedPrimary && withData.includes(state.renderedPrimary)) ? state.renderedPrimary : state.primaryModel;
+  wrap.innerHTML = avail.map(m=>{
+    const k = m.key, sel = state.selectedModels.includes(k);
+    const ci = state.compareFlights.findIndex(c=>c.key===k);
+    let cls = 'chip model-chip', style = '', title;
+    if(k===primary && withData.includes(k)){ cls += ' primary'; title = 'primary model (drives the analytics)'; }
+    else if(sel){ cls += ' comp'; const col = ci>=0 ? COMPARE_COLORS[ci].temp : 'var(--text-dim)'; style = `border-color:${col};color:${col}`; title = 'comparison curve · tap to make primary'; }
+    else { cls += ' avail'; title = 'tap to add this model'; }
+    return `<button class="${cls}" data-chip="${k}" style="${style}" title="${title}">${sel?'':'+ '}${m.label}${sel?`<span class="x" data-remove="${k}" title="remove">×</span>`:''}</button>`;
+  }).join('');
+}
+function selectionAdd(key){
+  if(state.selectedModels.includes(key)) return true;
+  let removed = null;
+  if(state.selectedModels.length >= MAX_COMPARE+1){
+    const order = state.selectionOrder || [];
+    const cand = order.filter(k=>k!==state.primaryModel && state.selectedModels.includes(k));
+    removed = cand[0] || state.selectedModels.find(k=>k!==state.primaryModel);
+    if(removed) state.selectedModels = state.selectedModels.filter(k=>k!==removed);
+  }
+  state.selectedModels = MODEL_CATALOG.map(m=>m.key).filter(k=>state.selectedModels.includes(k) || k===key);
+  state.selectionOrder = (state.selectionOrder||[]).filter(k=>state.selectedModels.includes(k)).concat([key]);
+  if(!state.primaryModel || !state.selectedModels.includes(state.primaryModel)) state.primaryModel = key;
+  if(removed) showNotice(`${MODEL_BY_KEY[removed].label} removed — up to ${MAX_COMPARE+1} models at once.`, false);
+  return true;
+}
+function selectionRemove(key){
+  state.selectedModels = state.selectedModels.filter(k=>k!==key);
+  state.selectionOrder = (state.selectionOrder||[]).filter(k=>k!==key);
+  if(state.primaryModel === key) state.primaryModel = state.selectedModels[0] || null;
+}
+async function toggleModel(key, opts){
+  opts = opts || {};
+  if(state.selectedModels.includes(key) && !opts.addOnly) selectionRemove(key);
+  else selectionAdd(key);
+  renderModelList(); saveSession();
+  if(state.loaded){ await ensureModels(state.selectedModels); renderProfile(); }
+}
+function setPrimary(key){
+  if(!state.selectedModels.includes(key)) selectionAdd(key);
+  state.primaryModel = key;
+  renderModelList(); saveSession();
+  if(state.loaded){ ensureModels(state.selectedModels).then(renderProfile); }
 }
 
-// ---------- profile: loading and timeline ----------
+// ---------- data loading ----------
 function setLoading(on, msg){
-  const ov = $('loadingOverlay');
-  ov.style.display = on ? 'flex' : 'none';
+  $('loadingOverlay').style.display = on ? 'flex' : 'none';
   if(msg!=null) $('loadingMsg').textContent = msg;
-}
-function modelStale(md){
-  const l = state.location;
-  return !md || Math.abs(md.lat-l.lat)>1e-4 || Math.abs(md.lon-l.lon)>1e-4 || (Date.now()-md.fetchedAt) > 3*3600e3;
-}
-async function loadProfile(opts){
-  opts = opts || {};
-  const l = state.location;
-  showScreen('profile');
-  setLoading(true, 'Loading model data…');
-  $('profileNotice').style.display = 'none';
-  const errors = [];
-  for(const key of state.selectedModels){
-    const meta = MODEL_BY_KEY[key];
-    if(!meta) continue;
-    if(!opts.force && !modelStale(state.modelData[key])) continue;
-    try{
-      state.modelData[key] = await OpenMeteo.fetchModel(meta, l.lat, l.lon, msg=>setLoading(true, msg));
-    }catch(e){
-      console.error(e);
-      errors.push(`${meta.label}: ${e.message}`);
-      delete state.modelData[key];
-    }
-  }
-  state.selectedModels.forEach(k=>{
-    const md = state.modelData[k];
-    if(md && md.validRange[0] < 0){ errors.push(`${md.meta.label}: no data at this location`); delete state.modelData[k]; }
-  });
-  const have = state.selectedModels.filter(k=>state.modelData[k]);
-  if(!have.length){
-    setLoading(false);
-    showNotice('No model data could be loaded. '+(navigator.onLine ? errors.join(' · ') : 'You appear to be offline and no cached profile exists for this location.'), true);
-    return;
-  }
-  if(errors.length) showNotice('Some models failed: '+errors.join(' · '), false);
-  // timeline: hour 0 = earliest t0 of the loaded models (today 00 UTC)
-  const t0 = Math.min(...have.map(k=>state.modelData[k].t0));
-  have.forEach(k=>{ state.modelData[k].offset = Math.round((state.modelData[k].t0 - t0)/3600); });
-  state.timeline = {t0, hours: TIMELINE_HOURS + 24};
-  if(!state.primaryModel || !have.includes(state.primaryModel)) state.primaryModel = have[0];
-  let idx = Math.round((targetTimeMs/1000 - t0)/3600);
-  const nowIdx = Math.floor((Date.now()/1000 - t0)/3600);
-  const maxIdx = Math.max(...have.map(k=>state.modelData[k].validRange[1]+state.modelData[k].offset));
-  const minIdx = Math.min(Math.max(0, nowIdx), maxIdx);
-  idx = Math.max(minIdx, Math.min(maxIdx, idx));
-  state.timeIdx = idx;
-  const sl = $('timeSlider'); sl.min = String(minIdx); sl.max = String(maxIdx); sl.value = String(idx);
-  // Phones: start with the lower ~45 % of the column (roughly the troposphere
-  // below 10 km) so the boundary layer is readable; the zoom sliders, pinch
-  // or ⟲ restore the full column.
-  if(!state.zoomTouched && window.innerWidth < 640 && state.viewMaxPct === 1000){
-    state.viewMaxPct = 450; $('altRangeMax').value = '450';
-  }
-  setLoading(false);
-  saveSession();
-  renderProfile();
 }
 function showNotice(text, isError){
   const n = $('profileNotice');
   n.textContent = text; n.style.display = 'block';
   n.classList.toggle('error', !!isError);
 }
+function hideNotice(){ $('profileNotice').style.display = 'none'; }
+function modelStale(md, loc){
+  return !md || Math.abs(md.lat-loc.lat)>2e-4 || Math.abs(md.lon-loc.lon)>2e-4 || (Date.now()-md.fetchedAt) > 3*3600e3;
+}
+// Fetches every listed model that is missing or stale for the loaded location.
+async function ensureModels(keys, force){
+  const loc = state.loaded; if(!loc) return [];
+  const errors = [];
+  const todo = keys.filter(k=>MODEL_BY_KEY[k] && (force || modelStale(state.modelData[k], loc)));
+  if(todo.length) setLoading(true, 'Loading model data…');
+  for(const key of todo){
+    try{
+      const md = await OpenMeteo.fetchModel(MODEL_BY_KEY[key], loc.lat, loc.lon, msg=>setLoading(true, msg));
+      md.offset = Math.round((md.t0 - state.timeline.t0)/3600);
+      if(md.validRange[0] < 0){ errors.push(`${md.meta.label}: no data at this place`); delete state.modelData[key]; }
+      else state.modelData[key] = md;
+    }catch(e){
+      console.error(e);
+      errors.push(`${MODEL_BY_KEY[key].label}: ${e.message}`);
+      delete state.modelData[key];
+    }
+  }
+  if(todo.length) setLoading(false);
+  if(errors.length) showNotice('Some models failed: '+errors.join(' · '), false);
+  return errors;
+}
+async function loadProfile(opts){
+  opts = opts || {};
+  const l = state.location; if(!l) return;
+  if(!state.selectedModels.length){
+    const def = pickDefaultModel(l.lat, l.lon, new Date(currentTimeMs()));
+    if(def){ state.selectedModels = [def.key]; state.primaryModel = def.key; state.selectionOrder = [def.key]; }
+  }
+  // drop models that do not cover the new place
+  state.selectedModels = state.selectedModels.filter(k=>modelCoversPoint(MODEL_BY_KEY[k], l.lat, l.lon));
+  if(!state.selectedModels.length){
+    const def = pickDefaultModel(l.lat, l.lon, new Date(currentTimeMs()));
+    if(def){ state.selectedModels = [def.key]; state.primaryModel = def.key; }
+  }
+  if(!state.primaryModel || !state.selectedModels.includes(state.primaryModel)) state.primaryModel = state.selectedModels[0] || null;
+  state.loaded = Object.assign({}, l);
+  hideNotice();
+  const errors = await ensureModels(state.selectedModels, opts.force);
+  const have = state.selectedModels.filter(k=>state.modelData[k]);
+  if(!have.length){
+    showNotice('No model data could be loaded. '+(navigator.onLine ? errors.join(' · ') : 'You appear to be offline and no cached profile exists for this place.'), true);
+    state.loaded = null; updatePlaceCard(); renderModelChips();
+    return;
+  }
+  if(!state.zoomTouched && isNarrow() && state.viewMaxPct === 1000){ state.viewMaxPct = 450; $('altRangeMax').value = '450'; }
+  if(isNarrow()) applySide(false);
+  state.timeIdx = clampIdx(state.timeIdx);
+  updatePlaceCard(); renderModelList(); saveSession();
+  renderProfile();
+}
 
 // ---------- profile rendering ----------
-function currentTimeMs(){ return (state.timeline.t0 + state.timeIdx*3600)*1000; }
 function modelsWithData(){ return state.selectedModels.filter(k=>state.modelData[k] && OpenMeteo.hasDataAt(state.modelData[k], state.timeIdx)); }
-
 function renderProfile(){
-  if(!state.timeline) return;
+  renderTimeControls();
+  if(!state.loaded){ $('emptyState').style.display = 'block'; $('dataView').style.display = 'none'; renderModelChips(); return; }
+  $('emptyState').style.display = 'none';
+  $('dataView').style.display = 'block';
   const avail = modelsWithData();
   const notice = $('profileNotice');
   if(!avail.length){
-    state.rows = null;
-    showNotice('No selected model covers this hour. Move the slider back or add a longer-range model.', false);
-    $('dataView').style.visibility = 'hidden';
-    updateTimeLabels();
-    renderReadout(null);
+    state.rows = null; state.compareFlights = [];
+    showNotice('No selected model covers this hour — add one of the chips above, or move the slider back.', false);
+    renderModelChips(); renderModelList();
     return;
   }
-  $('dataView').style.visibility = 'visible';
   let primary = state.primaryModel;
   if(!avail.includes(primary)){
     primary = avail[0];
     showNotice(`${MODEL_BY_KEY[state.primaryModel].label} has no data for this hour — showing ${MODEL_BY_KEY[primary].label} instead.`, false);
-  } else if(notice.style.display==='block' && !notice.classList.contains('error') && notice.dataset.sticky!=='1'){
-    notice.style.display = 'none';
+  } else if(notice.style.display==='block' && !notice.classList.contains('error') && !notice.dataset.keep){
+    hideNotice();
   }
   const md = state.modelData[primary];
   const rows = OpenMeteo.buildRows(md, state.timeIdx);
@@ -393,19 +488,30 @@ function renderProfile(){
     const r = OpenMeteo.buildRows(state.modelData[k], state.timeIdx);
     return r ? {rows: r, source: MODEL_BY_KEY[k].label, key: k} : null;
   }).filter(Boolean);
-  renderProfileFacts(md, primary);
+  state.renderedPrimary = primary;
+  renderProfileFacts();
+  renderDiagStrip(md);
   renderThermo(rows);
   renderLegend();
   updateVerticalVelocityLabel(md);
+  renderModelChips();
+  renderModelList();
   redrawAll();
-  updateTimeLabels();
-  renderReadout(md);
-  renderModelChips(avail, primary);
   updateTaEditLink();
   if(state.altitudeUnit === 'fl' && !state.transitionAltConfirmed) openTaModal('fl');
 }
+function fitChartHeight(){
+  if(isNarrow() || printMode){ state.chartTargetHeight = null; return; }
+  const col = $('centerCol'), card = document.querySelector('#dataView .chart-card');
+  if(!col || !card || $('dataView').style.display==='none'){ state.chartTargetHeight = null; return; }
+  const top = card.getBoundingClientRect().top - col.getBoundingClientRect().top + col.scrollTop;
+  const legendH = $('legend').offsetHeight || 24;
+  const available = col.clientHeight - top - legendH - 22;
+  state.chartTargetHeight = Math.max(380, Math.min(1100, available));
+}
 function redrawAll(){
   if(!state.rows) return;
+  fitChartHeight();
   const hasWind = activeWindRows(state.rows).length >= 2;
   const hasW = state.rows.filter(r=>r[10]!=null).length >= 5;
   $('hodoCard').style.display = hasWind ? 'block' : 'none';
@@ -420,9 +526,9 @@ function updateVerticalVelocityLabel(md){
   const unit = (md.units && (md.units['vertical_velocity_500hPa'] || md.units['vertical_velocity_700hPa'])) || '';
   $('riseTitle').textContent = `Vertical velocity (model${unit?', '+unit:''})`;
 }
-
-function renderProfileFacts(md, key){
-  const m = md.meta, l = state.location;
+function renderProfileFacts(){
+  const key = state.renderedPrimary; const md = state.modelData[key]; if(!md || !state.rows) return;
+  const m = md.meta, l = state.loaded;
   const run = estimateModelRun(m);
   const top = state.rows[state.rows.length-1];
   const lvlCount = state.rows.filter(r=>r[12]!=='agl').length;
@@ -430,97 +536,34 @@ function renderProfileFacts(md, key){
   const cached = (md.t0*1000) < Date.now()-36*3600e3;
   const items = [
     ['Model', `${m.label} · ${m.provider}`],
-    ['Run (estimated)', `${String(run.getUTCHours()).padStart(2,'0')}Z ${run.getUTCDate()} ${MON[run.getUTCMonth()]} · ${m.cycleH}-hourly`],
-    ['Grid spacing', `${m.gridKm} km`],
-    ['Profile levels', `${lvlCount} · top ${Math.round(top[2])} hPa`],
-    ['Model ground', `${md.elevation!=null ? Math.round(md.elevation)+' m' : 'n/a'}${l.elevation!=null ? ' · site '+Math.round(l.elevation)+' m' : ''}`],
-    ['Valid time', `${fmtLocal(currentTimeMs(), true)} · ${fmtUtc(currentTimeMs())}`],
-    ['Data fetched', age<1 ? 'just now' : (age<90 ? age+' min ago' : Math.round(age/60)+' h ago')+(cached?' · cached':'')],
-    ['Comparison models', state.compareFlights.length ? state.compareFlights.map(c=>c.source).join(', ') : 'none'],
+    ['Run (est.)', `${String(run.getUTCHours()).padStart(2,'0')}Z ${run.getUTCDate()} ${MON[run.getUTCMonth()]} · ${m.cycleH}-hourly`],
+    ['Grid · levels', `${m.gridKm} km · ${lvlCount} lv · top ${Math.round(top[2])} hPa`],
+    ['Model ground · site', `${md.elevation!=null ? Math.round(md.elevation)+' m' : 'n/a'} · ${l.elevation!=null ? Math.round(l.elevation)+' m' : 'n/a'}`],
+    ['Valid', `${fmtLocal(currentTimeMs(), true)} · ${fmtUtc(currentTimeMs())}`],
+    ['Fetched', age<1 ? 'just now' : (age<90 ? age+' min ago' : Math.round(age/60)+' h ago')+(cached?' · cached':'')],
+    ['Comparison', state.compareFlights.length ? state.compareFlights.map(c=>c.source).join(', ') : 'none'],
+    ['Place', `${l.name || fmtCoord(l.lat, l.lon)}`],
   ];
   $('statStrip').innerHTML = items.map(([k,v])=>`<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
   $('subtitle').textContent = `${l.name || fmtCoord(l.lat,l.lon)} · ${fmtLocal(currentTimeMs(), true)} · ${m.label} · ${APP_VERSION}`;
-  $('profileTitle').textContent = `${l.name || 'Profile'} · ${fmtLocal(currentTimeMs(), false)}`;
 }
-
-function renderModelChips(avail, primary){
-  const wrap = $('modelChips');
-  wrap.innerHTML = state.selectedModels.map(k=>{
-    const m = MODEL_BY_KEY[k];
-    const has = avail.includes(k);
-    const ci = state.compareFlights.findIndex(c=>c.key===k);
-    const color = k===primary ? 'var(--amber)' : (ci>=0 ? COMPARE_COLORS[ci].temp : 'var(--text-dim)');
-    return `<button class="chip model-chip${k===primary?' primary':''}${has?'':' nodata'}" data-model="${k}" style="border-color:${color};${k===primary?'':'color:'+color}" title="${has?'tap to make primary':'no data at this hour'}">${m.label}</button>`;
-  }).join('') + `<button class="chip" id="chipAdd" title="Change models">＋</button>`;
-  wrap.querySelectorAll('.model-chip').forEach(b=>b.addEventListener('click', ()=>{
-    const k = b.dataset.model;
-    if(!modelsWithData().includes(k)) return;
-    state.primaryModel = k; saveSession(); renderProfile();
-  }));
-  $('chipAdd').addEventListener('click', ()=>{ renderModelList(); showScreen('models'); });
-}
-
-function updateTimeLabels(){
-  const ms = currentTimeMs();
-  $('timeLabel').textContent = fmtLocal(ms, true);
-  $('timeLabelUtc').textContent = fmtUtcDate(ms);
-  $('timeSlider').value = String(state.timeIdx);
-  const t0 = state.timeline.t0;
-  const lead = (ms - Date.now())/3600e3;
-  $('timeLead').textContent = lead<0.5 ? 'now' : `+${Math.round(lead)} h`;
-  // tick marks: midnight (local) positions along the slider
-  const sl = $('timeSlider'), min = parseInt(sl.min,10), max = parseInt(sl.max,10);
-  const ticks = $('timeTicks'); let html = '';
-  const midnights = [];
-  for(let i=min;i<=max;i++){ const p = localParts((t0+i*3600)*1000); if(p.h===0) midnights.push({i, dow:p.dow}); }
-  const every = midnights.length > 12 ? 3 : (midnights.length > 7 ? 2 : 1);
-  midnights.forEach((m,k)=>{
-    const x = (m.i-min)/(max-min||1)*100;
-    html += `<span style="left:${x.toFixed(2)}%"><i></i>${k%every===0 ? DOW[m.dow] : ''}</span>`;
-  });
-  ticks.innerHTML = html;
-}
-
-function renderReadout(md){
-  const el = $('scrubberReadout');
-  if(!md){ el.innerHTML=''; return; }
+function renderDiagStrip(md){
+  const el = $('diagStrip');
   const s = OpenMeteo.surfaceAt(md, state.timeIdx) || {};
   const f1 = (v,d)=> v==null ? '—' : (Math.round(v*Math.pow(10,d||0))/Math.pow(10,d||0)).toFixed(d||0);
   const spd = v => v==null ? '—' : formatSpeed(v).toFixed(0)+' '+speedUnitLabel();
   const items = [
-    ['2 m temp / dew point', `${f1(s.temperature_2m,1)} / ${f1(s.dew_point_2m,1)} °C`],
-    ['10 m wind', s.wind_speed_10m!=null ? `${spd(s.wind_speed_10m)} / ${f1(s.wind_direction_10m)}°${s.wind_gusts_10m!=null?' · gusts '+spd(s.wind_gusts_10m):''}` : '—'],
+    ['2 m T / Td', `${f1(s.temperature_2m,1)} / ${f1(s.dew_point_2m,1)} °C`],
+    ['10 m wind', s.wind_speed_10m!=null ? `${spd(s.wind_speed_10m)} / ${f1(s.wind_direction_10m)}°${s.wind_gusts_10m!=null?' · G '+spd(s.wind_gusts_10m):''}` : '—'],
     ['Cloud cover (model)', s.cloud_cover!=null ? `${f1(s.cloud_cover)} %${s.cloud_cover_low!=null?' · L/M/H '+f1(s.cloud_cover_low)+'/'+f1(s.cloud_cover_mid)+'/'+f1(s.cloud_cover_high):''}` : '—'],
     ['Precipitation', s.precipitation!=null ? `${f1(s.precipitation,1)} mm/h` : '—'],
-    ['Surface / MSL pressure', `${f1(s.surface_pressure)} / ${f1(s.pressure_msl)} hPa`],
+    ['Surface / MSL p', `${f1(s.surface_pressure)} / ${f1(s.pressure_msl)} hPa`],
     ['CAPE / CIN (model)', s.cape!=null ? `${f1(s.cape)}${s.convective_inhibition!=null?' / '+f1(s.convective_inhibition):''} J/kg` : '—'],
     ['Lifted index (model)', s.lifted_index!=null ? `${s.lifted_index>0?'+':''}${f1(s.lifted_index,1)} °C` : '—'],
     ['Freezing level (model)', s.freezing_level_height!=null ? formatAltitude(s.freezing_level_height, state.rows ? state.rows[0][1] : 0) : '—'],
     ['Boundary layer (model)', s.boundary_layer_height!=null ? `${f1(s.boundary_layer_height)} m AGL` : '—'],
   ];
   el.innerHTML = items.map(([k,v])=>`<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
-}
-
-// ---------- time slider + playback ----------
-let playTimer = null, renderPending = false;
-function setTimeIdx(idx){
-  const sl = $('timeSlider');
-  idx = Math.max(parseInt(sl.min,10), Math.min(parseInt(sl.max,10), idx));
-  if(idx === state.timeIdx) return;
-  state.timeIdx = idx;
-  if(!renderPending){
-    renderPending = true;
-    requestAnimationFrame(()=>{ renderPending = false; renderProfile(); });
-  }
-}
-function togglePlay(){
-  if(playTimer){ clearInterval(playTimer); playTimer = null; $('playBtn').textContent = '▶'; return; }
-  $('playBtn').textContent = '❚❚';
-  playTimer = setInterval(()=>{
-    const sl = $('timeSlider');
-    if(state.timeIdx >= parseInt(sl.max,10)){ togglePlay(); return; }
-    setTimeIdx(state.timeIdx+1);
-  }, Math.round(1000/playSpeed));
 }
 
 // ---------- altitude zoom sliders (S2) ----------
@@ -552,7 +595,6 @@ function resetAltRange(){
 
 // ---------- touch interaction on the main chart ----------
 function setupChartTouch(){
-  const wrap = $('chartWrap');
   const c = canvas;
   let pointers = new Map();
   let pressTimer = null, inspecting = false, startPt = null, pinch = null;
@@ -602,13 +644,11 @@ function setupChartTouch(){
     pointers.delete(e.pointerId);
     clearTimeout(pressTimer);
     if(pointers.size < 2) pinch = null;
-    if(inspecting){ endInspect(); /* keep the last readout visible until the next touch */ }
+    if(inspecting){ endInspect(); }
   }
   c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
-  // block page scrolling while a touch inspect or pinch is in progress
   c.addEventListener('touchmove', e=>{ if(inspecting || pinch) e.preventDefault(); }, {passive:false});
   c.addEventListener('touchstart', e=>{ if(state.inspectLock || e.touches.length===2) e.preventDefault(); }, {passive:false});
-  // secondary panels: touch = hover
   ['hodoCanvas','riseCanvas','thetaECanvas'].forEach(id=>{
     const el = $(id);
     el.addEventListener('pointerdown', e=>{ if(e.pointerType!=='mouse'){ el.dispatchEvent(new MouseEvent('mousemove', {clientX:e.clientX, clientY:e.clientY, bubbles:true})); } });
@@ -622,7 +662,7 @@ function applyInspectLock(){
   canvas.style.touchAction = on ? 'none' : 'pan-y';
 }
 
-// ---------- wind-speed panel resize handle (pointer events, touch-friendly) ----------
+// ---------- wind-speed panel resize handle ----------
 function setupWindHandle(){
   const handle = $('windPanelHandle');
   let dragging = false, startX = 0, startWidth = 72;
@@ -635,8 +675,7 @@ function setupWindHandle(){
   });
   handle.addEventListener('pointermove', e=>{
     if(!dragging) return;
-    // dragging left (toward the main plot) widens the wind-speed panel
-    const delta = startX - e.clientX;
+    const delta = startX - e.clientX; // dragging left widens the wind panel
     const maxW = PLOT ? Math.max(60, PLOT.cssWidth - PLOT.pad.left - 120) : 340;
     state.speedPanelWidth = Math.max(36, Math.min(maxW, startWidth + delta));
     draw(state.rows);
@@ -646,54 +685,52 @@ function setupWindHandle(){
   handle.addEventListener('dblclick', ()=>{ state.speedPanelWidth = null; saveSettings(); draw(state.rows); });
 }
 
-// ---------- settings sheet ----------
-function openSettings(on){
-  $('settingsSheet').classList.toggle('open', on);
-  $('settingsBackdrop').style.display = on ? 'block' : 'none';
+// ---------- settings menu (hamburger) and diagram controls ----------
+function openMenu(on){
+  $('settingsMenu').style.display = on ? 'block' : 'none';
   if(on) syncSettingsControls();
 }
 function syncSettingsControls(){
-  $('diagramTypeSelect').value = state.diagramType;
   $('altitudeUnitSelect').value = state.altitudeUnit;
   $('speedUnitSelect').value = state.speedUnit;
   $('windDisplayModeSelect').value = state.windDisplayMode;
-  $('thetaEToggleBtn').textContent = state.showThetaE ? 'On' : 'Off';
   $('levelDotsBtn').textContent = state.showLevelDots===false ? 'Off' : 'On';
   $('cloudThreshInput').value = String(state.cloudThreshold);
   $('playSpeedSelect').value = String(playSpeed);
   $('apiKeyInput').value = state.apiKey || '';
-  $('callsToday').textContent = `Open-Meteo requests today: ${OpenMeteo.callsToday()}`;
-  $('themeBtn').textContent = document.documentElement.dataset.theme==='light' ? '🌗 Switch to dark' : '🌗 Switch to light';
+  $('callsToday').textContent = `${OpenMeteo.callsToday()} requests today`;
+  $('themeBtn').textContent = document.documentElement.dataset.theme==='light' ? 'Dark' : 'Light';
+  const dt = document.querySelector(`input[name=diagramType][value=${state.diagramType}]`); if(dt) dt.checked = true;
+  const te = document.querySelector(`input[name=thetaE][value=${state.showThetaE?'on':'off'}]`); if(te) te.checked = true;
   updateTaEditLink();
 }
 function bindSettings(){
-  $('settingsBtn').addEventListener('click', ()=>openSettings(true));
-  $('settingsClose').addEventListener('click', ()=>openSettings(false));
-  $('settingsBackdrop').addEventListener('click', ()=>openSettings(false));
-  $('diagramTypeSelect').addEventListener('change', e=>{ state.diagramType = e.target.value; saveSettings(); renderProfile(); });
+  $('settingsBtn').addEventListener('click', e=>{ e.stopPropagation(); openMenu($('settingsMenu').style.display==='none'); });
+  document.addEventListener('click', e=>{ if($('settingsMenu').style.display!=='none' && !e.target.closest('.menu-wrap')) openMenu(false); });
+  document.querySelectorAll('input[name=diagramType]').forEach(r=>r.addEventListener('change', ()=>{ if(r.checked){ state.diagramType = r.value; saveSettings(); if(state.rows) renderProfile(); } }));
+  document.querySelectorAll('input[name=thetaE]').forEach(r=>r.addEventListener('change', ()=>{ if(r.checked){ state.showThetaE = r.value==='on'; saveSettings(); if(state.rows) draw(state.rows); } }));
   $('altitudeUnitSelect').addEventListener('change', e=>{
     const v = e.target.value;
     if(v==='fl' && !state.transitionAltConfirmed){ openTaModal('fl'); return; }
-    state.altitudeUnit = v; saveSettings(); updateTaEditLink(); renderProfile();
+    state.altitudeUnit = v; saveSettings(); updateTaEditLink(); if(state.rows) renderProfile();
   });
-  $('speedUnitSelect').addEventListener('change', e=>{ state.speedUnit = e.target.value; saveSettings(); renderProfile(); });
-  $('windDisplayModeSelect').addEventListener('change', e=>{ state.windDisplayMode = e.target.value; saveSettings(); draw(state.rows); });
-  $('thetaEToggleBtn').addEventListener('click', ()=>{ state.showThetaE = !state.showThetaE; syncSettingsControls(); saveSettings(); draw(state.rows); });
-  $('levelDotsBtn').addEventListener('click', ()=>{ state.showLevelDots = state.showLevelDots===false; syncSettingsControls(); saveSettings(); draw(state.rows); });
-  $('cloudThreshInput').addEventListener('input', e=>{ const v = parseFloat(e.target.value); if(isFinite(v) && v>=0 && v<=100){ state.cloudThreshold = v; saveSettings(); draw(state.rows); renderLegend(); } });
+  $('speedUnitSelect').addEventListener('change', e=>{ state.speedUnit = e.target.value; saveSettings(); if(state.rows) renderProfile(); });
+  $('windDisplayModeSelect').addEventListener('change', e=>{ state.windDisplayMode = e.target.value; saveSettings(); if(state.rows) draw(state.rows); });
+  $('levelDotsBtn').addEventListener('click', ()=>{ state.showLevelDots = state.showLevelDots===false; syncSettingsControls(); saveSettings(); if(state.rows) draw(state.rows); });
+  $('cloudThreshInput').addEventListener('input', e=>{ const v = parseFloat(e.target.value); if(isFinite(v) && v>=0 && v<=100){ state.cloudThreshold = v; saveSettings(); if(state.rows){ draw(state.rows); renderLegend(); } } });
   $('playSpeedSelect').addEventListener('change', e=>{ playSpeed = parseFloat(e.target.value)||1; saveSettings(); if(playTimer){ togglePlay(); togglePlay(); } });
   $('apiKeyInput').addEventListener('change', e=>{ state.apiKey = e.target.value.trim() || null; saveSettings(); });
   $('themeBtn').addEventListener('click', ()=>{
     document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light';
-    saveSettings(); syncSettingsControls(); redrawAll();
+    saveSettings(); syncSettingsControls(); if(state.rows) redrawAll();
   });
   $('resetConfigBtn').addEventListener('click', ()=>{
     Object.assign(state, {diagramType:'stuve', altitudeUnit:'amsl', speedUnit:'kmh', windDisplayMode:'barb', showThetaE:false,
       cloudThreshold:85, showLevelDots:true, transitionAltFt:null, transitionAltConfirmed:false, speedPanelWidth:null});
-    playSpeed = 1; saveSettings(); syncSettingsControls(); renderProfile();
+    playSpeed = 1; saveSettings(); syncSettingsControls(); if(state.rows) renderProfile();
   });
-  $('refreshBtn').addEventListener('click', ()=>{ openSettings(false); loadProfile({force:true}); });
-  $('aboutBtn').addEventListener('click', ()=>{ openSettings(false); $('aboutOverlay').style.display='flex'; });
+  $('refreshBtn').addEventListener('click', ()=>{ openMenu(false); if(state.loaded) loadProfile({force:true}); });
+  $('aboutBtn').addEventListener('click', ()=>{ openMenu(false); $('aboutOverlay').style.display='flex'; });
   $('aboutClose').addEventListener('click', ()=>{ $('aboutOverlay').style.display='none'; });
   $('aboutOverlay').addEventListener('click', e=>{ if(e.target.id==='aboutOverlay') $('aboutOverlay').style.display='none'; });
   $('inspectLockBtn').addEventListener('click', ()=>{ state.inspectLock = !state.inspectLock; applyInspectLock(); saveSettings(); });
@@ -702,7 +739,7 @@ function bindSettings(){
 // ---------- transition altitude modal (S2) ----------
 function updateTaEditLink(){
   const link = $('taEditLink');
-  if(state.altitudeUnit === 'fl' && state.transitionAltFt){ link.style.display = 'inline'; $('taEditLinkValue').textContent = state.transitionAltFt; }
+  if(state.altitudeUnit === 'fl' && state.transitionAltFt){ link.style.display = 'flex'; $('taEditLinkValue').textContent = state.transitionAltFt; }
   else link.style.display = 'none';
 }
 function openTaModal(pendingUnit){
@@ -712,7 +749,7 @@ function openTaModal(pendingUnit){
   $('taModalOverlay').style.display = 'flex';
 }
 function bindTaModal(){
-  $('taEditLink').addEventListener('click', ()=>openTaModal('fl'));
+  $('taEditLink').addEventListener('click', ()=>{ openMenu(false); openTaModal('fl'); });
   $('taConfirmBtn').addEventListener('click', ()=>{
     const v = parseInt($('taInput').value, 10);
     state.transitionAltFt = isFinite(v) && v>=0 ? v : 5000;
@@ -720,12 +757,12 @@ function bindTaModal(){
     state.altitudeUnit = $('taModalOverlay').dataset.pendingUnit || 'fl';
     $('altitudeUnitSelect').value = state.altitudeUnit;
     $('taModalOverlay').style.display = 'none';
-    saveSettings(); updateTaEditLink(); renderProfile();
+    saveSettings(); updateTaEditLink(); if(state.rows) renderProfile();
   });
   $('taCancelBtn').addEventListener('click', ()=>{
     state.altitudeUnit = 'amsl'; $('altitudeUnitSelect').value = 'amsl';
     $('taModalOverlay').style.display = 'none';
-    saveSettings(); updateTaEditLink(); renderProfile();
+    saveSettings(); updateTaEditLink(); if(state.rows) renderProfile();
   });
 }
 
@@ -746,7 +783,7 @@ function exportChartPng(){
   octx.fillText('StueveCast · '+$('subtitle').textContent, 10, 8);
   octx.setTransform(1,0,0,1,0,0);
   octx.drawImage(canvas, 0, headerH*dpr);
-  const name = `stuevecast_${(state.location.name||'profile').replace(/[^a-z0-9]+/gi,'_')}_${fmtUtcDate(currentTimeMs()).replace(/[^0-9]+/g,'-')}.png`;
+  const name = `stuevecast_${((state.loaded&&state.loaded.name)||'profile').replace(/[^a-z0-9]+/gi,'_')}_${fmtUtcDate(currentTimeMs()).replace(/[^0-9]+/g,'-')}.png`;
   out.toBlob(async blob=>{
     const file = new File([blob], name, {type:'image/png'});
     if(navigator.canShare && navigator.canShare({files:[file]})){
@@ -758,7 +795,7 @@ function exportChartPng(){
   }, 'image/png');
 }
 function buildShareUrl(){
-  const l = state.location;
+  const l = state.loaded || state.location;
   const params = new URLSearchParams();
   params.set('loc', `${l.lat.toFixed(4)},${l.lon.toFixed(4)}`);
   if(l.name) params.set('name', l.name);
@@ -768,9 +805,9 @@ function buildShareUrl(){
   return location.origin + location.pathname + '#' + params.toString();
 }
 async function shareProfile(){
-  if(!state.timeline) return;
+  if(!state.loaded) return;
   const url = buildShareUrl();
-  const text = `StueveCast — ${state.location.name || fmtCoord(state.location.lat, state.location.lon)}, ${fmtLocal(currentTimeMs(), true)}`;
+  const text = `StueveCast — ${state.loaded.name || fmtCoord(state.loaded.lat, state.loaded.lon)}, ${fmtLocal(currentTimeMs(), true)}`;
   if(navigator.share){
     try{ await navigator.share({title:'StueveCast profile', text, url}); return; }catch(e){ if(e.name==='AbortError') return; }
   }
@@ -791,7 +828,7 @@ function parseHash(){
 }
 let _preprintTheme = null;
 function bindPrint(){
-  $('printBtn').addEventListener('click', ()=>{ $('printModalOverlay').style.display='flex'; });
+  $('printBtn').addEventListener('click', ()=>{ if(!state.rows) return; $('printModalOverlay').style.display='flex'; });
   $('printCancelBtn').addEventListener('click', ()=>{ $('printModalOverlay').style.display='none'; });
   $('printWithPanelsBtn').addEventListener('click', ()=>{ $('printModalOverlay').style.display='none'; proceedToPrint(true); });
   $('printWithoutPanelsBtn').addEventListener('click', ()=>{ $('printModalOverlay').style.display='none'; proceedToPrint(false); });
@@ -799,7 +836,7 @@ function bindPrint(){
     _preprintTheme = document.documentElement.dataset.theme || '';
     document.documentElement.dataset.theme = 'light';
     printMode = true;
-    if(state.rows) redrawAll();
+    if(state.rows){ $('printUrl').textContent = buildShareUrl(); redrawAll(); }
   });
   window.addEventListener('afterprint', ()=>{
     document.documentElement.classList.remove('print-no-panels');
@@ -811,21 +848,23 @@ function bindPrint(){
 function proceedToPrint(withPanels){
   state.printWithPanels = withPanels;
   document.documentElement.classList.toggle('print-no-panels', !withPanels);
-  $('printLink').textContent = buildShareUrl();
   window.print();
 }
 
 // ---------- session ----------
 function saveSession(){
-  lsSet(SESSION_KEY, {location: state.location, targetTimeMs, selectedModels: state.selectedModels, primaryModel: state.primaryModel});
+  lsSet(SESSION_KEY, {loaded: state.loaded, location: state.location, timeMs: state.timeline ? currentTimeMs() : null,
+    selectedModels: state.selectedModels, primaryModel: state.primaryModel, selectionOrder: state.selectionOrder||[]});
 }
 function restoreSession(){
   const s = lsGet(SESSION_KEY, null);
-  if(!s || !s.location) return false;
-  state.location = s.location; targetTimeMs = s.targetTimeMs;
+  if(!s) return false;
+  if(s.location) state.location = s.location;
   state.selectedModels = (s.selectedModels||[]).filter(k=>MODEL_BY_KEY[k]);
   state.primaryModel = s.primaryModel;
-  if(!targetTimeMs || targetTimeMs < Date.now()-3600e3) targetTimeMs = defaultTargetTime();
+  state.selectionOrder = s.selectionOrder || [];
+  state.pendingLoad = s.loaded || null;
+  state.restoredTimeMs = s.timeMs || null;
   return true;
 }
 
@@ -833,7 +872,6 @@ function restoreSession(){
 function bindKeyboard(){
   document.addEventListener('keydown', e=>{
     if(e.target && ['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)) return;
-    if(document.body.dataset.screen !== 'profile' || !state.timeline) return;
     const k = e.key;
     if(k==='ArrowRight'){ setTimeIdx(state.timeIdx+1); e.preventDefault(); }
     else if(k==='ArrowLeft'){ setTimeIdx(state.timeIdx-1); e.preventDefault(); }
@@ -842,6 +880,7 @@ function bindKeyboard(){
     else if(k==='t' || k==='T'){ $('themeBtn').click(); }
     else if(k==='l' || k==='L'){ shareProfile(); }
     else if(k==='e' || k==='E'){ exportChartPng(); }
+    else if(k==='Escape'){ openMenu(false); }
   });
 }
 
@@ -855,28 +894,41 @@ function registerSw(){
 // ---------- init ----------
 (function init(){
   loadSettings();
+  initTimeline();
   $('versionStamp').textContent = APP_VERSION;
   const hash = parseHash();
-  const restored = restoreSession();
+  restoreSession();
+  let startLoad = false;
   if(hash){
-    state.location = Object.assign(state.location && Math.abs(state.location.lat-hash.lat)<1e-4 && Math.abs(state.location.lon-hash.lon)<1e-4 ? state.location : {}, {lat: hash.lat, lon: hash.lon, name: hash.name || (state.location||{}).name || null});
-    if(hash.models.length) state.selectedModels = hash.models;
+    state.location = Object.assign({}, state.location && Math.abs(state.location.lat-hash.lat)<2e-4 && Math.abs(state.location.lon-hash.lon)<2e-4 ? state.location : {}, {lat: hash.lat, lon: hash.lon, name: hash.name || null});
+    if(hash.models.length){ state.selectedModels = hash.models; state.selectionOrder = hash.models.slice(); }
     if(hash.primary) state.primaryModel = hash.primary;
-    targetTimeMs = hash.t && hash.t > Date.now()-3600e3 ? hash.t : defaultTargetTime();
+    state.restoredTimeMs = hash.t || null;
+    startLoad = true;
+  } else if(state.pendingLoad){
+    state.location = Object.assign({}, state.location||{}, state.pendingLoad);
+    startLoad = true;
   }
-  if(!targetTimeMs) targetTimeMs = defaultTargetTime();
+  let idx = Math.ceil(Date.now()/3600e3)*3600e3; // next full hour
+  if(state.restoredTimeMs && state.restoredTimeMs > Date.now()-3600e3) idx = state.restoredTimeMs;
+  state.timeIdx = Math.max(nowIdx(), msToIdx(idx));
 
+  applySide(isNarrow() ? !startLoad : state.sideOpen !== false);
   initMap();
   renderFavorites();
-  renderTimePicker();
   bindSettings(); bindTaModal(); bindPrint(); bindKeyboard();
   setupChartTouch(); setupWindHandle();
+  renderTimeControls();
+  renderModelList();
+  syncSettingsControls();
 
-  // location screen controls
+  // side panel
+  $('sideHandle').addEventListener('click', ()=>{ applySide(!state.sideOpen); saveSettings(); });
   $('searchInput').addEventListener('input', e=>{ clearTimeout(searchTimer); const q = e.target.value.trim(); searchTimer = setTimeout(()=>runSearch(q), 350); });
   $('searchInput').addEventListener('keydown', e=>{ if(e.key==='Enter'){ clearTimeout(searchTimer); runSearch(e.target.value.trim()); } if(e.key==='Escape'){ $('searchResults').style.display='none'; } });
   document.addEventListener('click', e=>{ if(!e.target.closest('#searchWrap')) $('searchResults').style.display='none'; });
   $('gpsBtn').addEventListener('click', locateMe);
+  $('loadBtn').addEventListener('click', ()=>loadProfile());
   $('favBtn').addEventListener('click', ()=>{
     const l = state.location; if(!l) return;
     let list = favorites();
@@ -892,27 +944,30 @@ function registerSw(){
   $('favList').addEventListener('click', e=>{
     const b = e.target.closest('[data-fav]'); if(!b) return;
     const f = favorites()[parseInt(b.dataset.fav,10)]; if(!f) return;
-    goToPlace(f.lat, f.lon, f.name, 12);
+    goToPlace(f.lat, f.lon, f.name, 12, true);
   });
-  $('hourSlider').addEventListener('input', onHourSlider);
-  $('chooseModelsBtn').addEventListener('click', ()=>{
-    if(!state.location){ alert('Pick a location first.'); return; }
-    if(!state.location.timezone){ resolvePoint(state.location.lat, state.location.lon); }
-    saveSession(); renderModelList(); showScreen('models');
-  });
-  $('lastProfileBtn').addEventListener('click', ()=>{ if(state.selectedModels.length) loadProfile(); else { renderModelList(); showScreen('models'); } });
-  $('lastProfileBtn').style.display = restored && state.selectedModels.length ? 'inline-flex' : 'none';
-
-  // models screen
-  $('modelsBackBtn').addEventListener('click', ()=>showScreen('location'));
-  $('showProfileBtn').addEventListener('click', ()=>{ saveSession(); loadProfile(); });
-
-  // profile screen
-  $('profileBackBtn').addEventListener('click', ()=>{ if(playTimer) togglePlay(); showScreen('location'); renderTimePicker(); });
+  // time
   $('timeSlider').addEventListener('input', e=>setTimeIdx(parseInt(e.target.value,10)));
-  $('stepBack').addEventListener('click', ()=>setTimeIdx(state.timeIdx-1));
-  $('stepFwd').addEventListener('click', ()=>setTimeIdx(state.timeIdx+1));
+  ['stepBack','stepBack2'].forEach(id=>$(id).addEventListener('click', ()=>setTimeIdx(state.timeIdx-1)));
+  ['stepFwd','stepFwd2'].forEach(id=>$(id).addEventListener('click', ()=>setTimeIdx(state.timeIdx+1)));
   $('playBtn').addEventListener('click', togglePlay);
+  $('dayChips').addEventListener('click', e=>{ const b = e.target.closest('[data-day]'); if(b) jumpToDay(parseInt(b.dataset.day,10)); });
+  $('timeLabelBtn').addEventListener('click', ()=>{ const pk = $('timePicker'); try{ if(pk.showPicker) pk.showPicker(); else pk.focus(); }catch(e){ pk.focus(); } });
+  $('timePicker').addEventListener('change', onTimePicked);
+  // models
+  $('modelList').addEventListener('change', e=>{ const cb = e.target.closest('input[data-model]'); if(cb) toggleModel(cb.dataset.model); });
+  $('modelList').addEventListener('click', e=>{
+    const star = e.target.closest('[data-primary]'); if(star){ setPrimary(star.dataset.primary); return; }
+    const body = e.target.closest('[data-toggle]'); if(body){ const row = body.closest('.model-row'); if(row && !row.classList.contains('off')) toggleModel(body.dataset.toggle); }
+  });
+  $('modelChips').addEventListener('click', e=>{
+    const x = e.target.closest('[data-remove]'); if(x){ e.stopPropagation(); toggleModel(x.dataset.remove); return; }
+    const chip = e.target.closest('[data-chip]'); if(!chip) return;
+    const k = chip.dataset.chip;
+    if(state.selectedModels.includes(k)){ if(k!==state.primaryModel) setPrimary(k); }
+    else toggleModel(k, {addOnly:true});
+  });
+  // chart
   $('altRangeMin').addEventListener('input', handleAltRangeInput);
   $('altRangeMax').addEventListener('input', handleAltRangeInput);
   $('altRangeReset').addEventListener('click', resetAltRange);
@@ -927,15 +982,14 @@ function registerSw(){
   }));
   $('thermoStrip').addEventListener('click', e=>{ const t = e.target.closest('[data-info-key]'); if(t) openInfoModal(t.dataset.infoKey); });
   $('commentsInfoBtn').addEventListener('click', ()=>openInfoModal('analyticalComments'));
-  window.addEventListener('resize', ()=>{ if(document.body.dataset.screen==='profile' && state.rows) redrawAll(); if(PICK_MAP) PICK_MAP.invalidateSize(); });
-  window.addEventListener('online', ()=>{ if(document.body.dataset.screen==='profile') showNotice('Back online.', false); });
+  let resizeTimer = null;
+  window.addEventListener('resize', ()=>{ clearTimeout(resizeTimer); resizeTimer = setTimeout(()=>{ if(state.rows) redrawAll(); if(PICK_MAP) PICK_MAP.invalidateSize(); }, 120); });
+  window.addEventListener('online', ()=>{ if(state.loaded) showNotice('Back online.', false); });
 
   registerSw();
-
-  if(hash && state.selectedModels.length){
+  renderProfile();
+  if(startLoad){
     resolvePoint(state.location.lat, state.location.lon);
     loadProfile();
-  } else {
-    showScreen('location');
   }
 })();

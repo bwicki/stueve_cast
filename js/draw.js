@@ -46,11 +46,17 @@ function layoutChart(rows){
   const cssWidth = canvas.parentElement.clientWidth;
   // Compact mode: phone-sized widths get tighter axis columns and a taller
   // plot relative to the width, so the profile stays legible in portrait.
-  const compact = !printMode && cssWidth < 640;
+  // Compact axis columns below 720 px (phones, and the centre column of the
+  // three-column cockpit on an iPad). The height follows the space the app
+  // measured for the chart (state.chartTargetHeight) so the profile fills the
+  // screen; phones use the viewport height instead.
+  const compact = !printMode && cssWidth < 720;
   const cssHeight = printMode
-    ? (state.printWithPanels ? Math.min(255, cssWidth*0.4) : Math.min(460, cssWidth*0.65))
-    : (compact ? Math.max(400, Math.min(620, Math.round(window.innerHeight*0.56)))
-               : Math.max(520, Math.min(760, cssWidth*0.62)));
+    ? (state.printWithPanels ? Math.min(230, cssWidth*0.34) : Math.min(460, cssWidth*0.65))
+    : (state.chartTargetHeight
+        ? Math.max(380, Math.min(state.chartTargetHeight, Math.round(cssWidth*1.35)))
+        : (cssWidth < 640 ? Math.max(400, Math.min(620, Math.round(window.innerHeight*0.56)))
+                          : Math.max(520, Math.min(760, cssWidth*0.62))));
   canvas.width = cssWidth*dpr;
   canvas.height = cssHeight*dpr;
   canvas.style.height = cssHeight+'px';
@@ -863,7 +869,7 @@ function drawMiniProfile(canvasId, cardId, rows, getValue, color, unitDecimals){
   const dpr = window.devicePixelRatio || 1;
   const cssWidth = canvas.parentElement.clientWidth;
   if(cssWidth <= 0) return; // hidden ancestor (e.g. "print without panels") — nothing to draw
-  const cssHeight = printMode ? 88 : Math.max(240, Math.min(360, cssWidth*0.6));
+  const cssHeight = printMode ? 80 : Math.max(200, Math.min(300, cssWidth*0.6));
   canvas.width = cssWidth*dpr; canvas.height = cssHeight*dpr;
   const miniOverlay = document.getElementById(canvasId.replace('Canvas','CursorOverlay'));
   if(miniOverlay){
@@ -992,7 +998,7 @@ function drawHodograph(rows){
   const canvas2 = document.getElementById('hodoCanvas');
   const dpr = window.devicePixelRatio || 1;
   if(canvas2.parentElement.clientWidth <= 0) return; // hidden ancestor (e.g. "print without panels") — nothing to draw
-  const size = printMode ? Math.min(88, canvas2.parentElement.clientWidth) : Math.min(390, canvas2.parentElement.clientWidth*0.85);
+  const size = printMode ? Math.min(84, canvas2.parentElement.clientWidth) : Math.min(300, canvas2.parentElement.clientWidth*0.8);
   canvas2.width = size*dpr; canvas2.height = size*dpr;
   canvas2.style.width = size+'px';
   canvas2.style.height = size+'px';

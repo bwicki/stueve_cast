@@ -19,9 +19,12 @@ All paths are relative, so any sub-path or a custom domain works. When you chang
 ## What is in the box
 
 ```
-index.html               app shell: three screens (place & time · models · profile), settings sheet, overlays
+index.html               single-screen cockpit: collapsible left column (map · time · models), centre (model chips,
+                         diagram radios, chart, panels), right column (facts · surface & model diagnostics ·
+                         analytics · comments), hamburger settings menu, overlays
 css/s2-base.css          S2 stylesheet (themes, chart card, stat strips, info modal, print)
-css/app.css              StueveCast layout: screens, map, sliders, touch sizes, iPad two-column layout, print
+css/app.css              cockpit layout: three columns with side handle, dense right column, chips, segmented radios,
+                         hamburger menu, phone drawer, one-page print
 js/core.js               S2 physics & indices (LCL/CAPE/CIN/LI/DCAPE/PW/K-index/Theta-E/shear), unit helpers, wind barbs;
                          shared `state`; level-based inversion / isothermal / cloud-layer detection
 js/info.js               the fourteen field explanations from S2 (verbatim) + "Model data note" per field
@@ -32,9 +35,9 @@ js/analytics.js          S2 analytics strip, traffic-light comments, info modal
 js/models.js             model catalog (Open-Meteo keys, coverage boxes, level lists, cycle/latency, default rule)
 js/openmeteo.js          Open-Meteo requests with self-healing variable lists, adapter model → S2 rows,
                          geocoding, elevation/time zone, reverse geocoding
-js/app.js                screens, Leaflet map with crosshair, time picker and slider with playback, model list,
-                         touch inspect & pinch zoom, wind-handle drag, settings, share link/QR, PNG export, print,
-                         session/favorites, service-worker registration
+js/app.js                cockpit logic: map with crosshair, one time slider (day chips, ‹ ›, play, native picker),
+                         model list + dynamic chips, auto-load, touch inspect & pinch zoom, wind-handle drag,
+                         settings menu, share link/QR, PNG export, print, session/favorites, service worker
 sw.js                    offline: app shell precache, Open-Meteo network-first with cache fallback, tile cache
 manifest.webmanifest     PWA manifest (standalone, icons incl. maskable)
 icons/, img/             icon set (SVG, ICO, 180/192/512, maskable) and the Ballonteam logo
@@ -52,9 +55,14 @@ which the S2 chart already knew how to draw as dashed comparison curves.
 
 1. **Place** – map centre under the crosshair, place search (Open-Meteo geocoding), GPS, favorites.
    Elevation and time zone come from one cheap Open-Meteo call, the place name from Nominatim.
-2. **Time** – day chips and an hour slider in the location's time zone (default: next full hour).
-3. **Models** – catalog filtered by coverage and estimated horizon; default = finest grid, newest run.
-   The first checked model is the primary one, up to three more are comparison curves.
+   Search results, favorites and GPS load the profile immediately; after panning the map, **Load** does.
+2. **Time** – one slider over every hour up to the longest model horizon (16 days), in the location's
+   time zone: day chips jump, ‹ › step, ▶ animates, the date label opens a native date/time picker.
+3. **Models** – the left list shows every catalog model with coverage, grid, levels, estimated run and
+   horizon (★ = primary). Chips above the chart show the models that cover the place *and* the chosen
+   hour; they appear and disappear as the slider enters or leaves a model's horizon. Tap a chip to add a
+   model (fetched on demand), × to remove it, tap a comparison chip to make it primary. Default = finest
+   grid with the newest run; up to four models at once.
 4. **Fetch** – one request per model for its whole horizon (`timezone=UTC`, `timeformat=unixtime`,
    `wind_speed_unit=ms`), plus one "extras" request (CAPE, LI, CIN, freezing level, PBL height,
    80/120/180 m winds, vertical velocity). Variables a model does not support are removed automatically
@@ -62,6 +70,9 @@ which the S2 chart already knew how to draw as dashed comparison curves.
 5. **Adapter** – 2 m values become the ground row, levels below the model ground are dropped,
    heights come from geopotential height (hypsometric fallback), dew point from RH (Magnus).
 6. **Slider** – every hour is rebuilt from the cached arrays, so scrubbing and playback work offline.
+7. **Layout** – the chart takes the height that is left in the centre column; ‹ hides the left column
+   to give the chart more width. Below 1000 px (phones) the left column becomes a drawer and the page
+   scrolls. Printing produces one A4 page: chart, optional panels, then the right-column blocks.
 
 ## Known limits (v1)
 

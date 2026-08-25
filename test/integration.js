@@ -111,93 +111,107 @@ const sleep = ms => new Promise(r=>setTimeout(r, ms));
   await sleep(300);
   let failures = 0;
   const check = (c, m) => { if(c) console.log('  ok   '+m); else { failures++; console.log('  FAIL '+m); } };
-  check(typeof w.state === 'object' || w.eval('typeof state') === 'object', 'scripts loaded, state exists');
-  check(d.body.dataset.screen === 'location', 'starts on the location screen');
+  check(w.eval('typeof state') === 'object', 'scripts loaded, state exists');
   check(w.eval('PICK_MAP') != null, 'Leaflet map initialised');
+  check(d.getElementById('emptyState').style.display !== 'none' && d.getElementById('dataView').style.display === 'none', 'starts with the empty state');
+  check(d.getElementById('timeSlider').max > d.getElementById('timeSlider').min && d.querySelectorAll('#dayChips .chip').length > 10, 'time slider and day chips ready before any load');
+  check(d.querySelectorAll('#modelList .model-row').length === w.eval('MODEL_CATALOG.length'), 'model list rendered from the catalog');
 
-  // search and pick a place
+  // search and pick a place -> auto-load
   d.getElementById('searchInput').value = 'Pizol';
   d.getElementById('searchInput').dispatchEvent(new w.Event('input'));
   await sleep(500);
   const item = d.querySelector('.sr-item');
   check(item, 'search results rendered');
   item.click();
-  await sleep(900);
-  const loc = w.eval('state.location');
-  check(loc && loc.name && loc.name.startsWith('Pizol') && loc.timezone === 'Europe/Zurich' && loc.elevation === 1980, 'place resolved: '+JSON.stringify({name:loc.name, tz:loc.timezone, elev:loc.elevation}));
-  check(d.getElementById('timeSummary').textContent.includes('CEST'), 'time picker in local time: '+d.getElementById('timeSummary').textContent);
+  for(let i=0;i<60 && (d.getElementById('loadingOverlay').style.display !== 'none' || !w.eval('state.rows')); i++) await sleep(100);
+  await sleep(300);
+  const loc = w.eval('state.loaded');
+  check(loc && loc.name && loc.name.startsWith('Pizol') && loc.timezone === 'Europe/Zurich' && loc.elevation === 1980, 'place resolved and loaded: '+JSON.stringify({name:loc.name, tz:loc.timezone, elev:loc.elevation}));
+  check(d.getElementById('dataView').style.display === 'block' && d.getElementById('emptyState').style.display === 'none', 'profile view shown after auto-load');
+  const rows = w.eval('state.rows');
+  check(rows && rows.length > 10, 'rows for primary model: '+(rows&&rows.length));
+  check(w.eval('state.primaryModel') === 'icon_d2', 'ICON-D2 is the default primary');
+  check(d.getElementById('timeLabel').textContent.includes('CEST'), 'time in local zone: '+d.getElementById('timeLabel').textContent+' / '+d.getElementById('timeLabelUtc').textContent);
+  check(d.getElementById('loadBtn').textContent === 'Loaded', 'load button shows loaded state');
   d.getElementById('favBtn').click();
   check(d.querySelectorAll('#favList .chip').length === 1, 'favorite saved');
 
-  // models
-  d.getElementById('chooseModelsBtn').click();
-  await sleep(50);
-  check(d.body.dataset.screen === 'models', 'models screen shown');
-  const checked = Array.from(d.querySelectorAll('#modelList input:checked')).map(i=>i.dataset.model);
-  check(checked.length === 1 && checked[0] === 'icon_d2', 'ICON-D2 preselected: '+checked.join(','));
-  check(d.querySelector('input[data-model="meteoswiss_icon_ch1"]').disabled, 'ICON-CH1 listed disabled');
-  const gfs = d.querySelector('input[data-model="gfs_global"]'); gfs.checked = true; gfs.dispatchEvent(new w.Event('change'));
-  check(w.eval('state.selectedModels').join(',') === 'icon_d2,gfs_global', 'GFS added as comparison');
-
-  // profile
-  d.getElementById('showProfileBtn').click();
-  for(let i=0;i<40 && d.getElementById('loadingOverlay').style.display !== 'none'; i++) await sleep(100);
+  // chips above the chart
+  const chips = () => Array.from(d.querySelectorAll('#modelChips .model-chip')).map(c=>({k:c.dataset.chip, cls:c.className}));
+  check(chips().length >= 10 && chips().some(c=>c.k==='icon_d2' && /primary/.test(c.cls)), chips().length+' model chips, ICON-D2 primary');
+  check(!chips().some(c=>c.k==='gfs_hrrr' || c.k==='meteoswiss_icon_ch1'), 'HRRR and ICON-CH1 not offered');
+  d.querySelector('#modelChips [data-chip="gfs_global"]').click();
+  for(let i=0;i<60 && d.getElementById('loadingOverlay').style.display !== 'none'; i++) await sleep(100);
   await sleep(200);
-  check(d.body.dataset.screen === 'profile', 'profile screen shown');
-  check(d.getElementById('loadingOverlay').style.display === 'none', 'loading finished');
-  const rows = w.eval('state.rows');
-  check(rows && rows.length > 10, 'rows for primary model: '+(rows&&rows.length));
-  check(w.eval('state.compareFlights.length') === 1, 'comparison model drawn');
-  check(d.getElementById('thermoStrip').children.length === 14, '14 analytics fields');
-  check(d.getElementById('statStrip').textContent.includes('ICON-D2'), 'profile facts show the model');
+  check(w.eval('state.selectedModels').join(',') === 'icon_d2,gfs_global' && w.eval('state.compareFlights.length') === 1, 'GFS added as comparison via chip');
+  check(chips().some(c=>c.k==='gfs_global' && /comp/.test(c.cls)), 'GFS chip styled as comparison');
+  check(d.getElementById('thermoStrip').children.length === 14, '14 analytics fields in the right column');
+  check(d.getElementById('diagStrip').textContent.includes('CAPE') && d.getElementById('statStrip').textContent.includes('ICON-D2'), 'diagnostics and facts strips rendered');
   check(d.getElementById('analyticalCommentsList').children.length >= 3, 'analytical comments rendered');
-  check(d.getElementById('scrubberReadout').textContent.includes('CAPE'), 'hour readout rendered');
-  check(d.getElementById('timeLabel').textContent.includes('CEST'), 'time label local: '+d.getElementById('timeLabel').textContent+' / '+d.getElementById('timeLabelUtc').textContent);
-  check(d.querySelectorAll('#modelChips .model-chip').length === 2, 'model chips rendered');
   check(d.getElementById('windPanelHandle').style.display === 'flex', 'wind panel handle visible');
-  check(d.getElementById('hodoCard').style.display === 'block', 'hodograph shown');
 
-  // move the slider to the end: ICON-D2 runs out, GFS must take over
+  // slider to the end: ICON-D2 leaves its horizon, chip disappears, GFS takes over
   const sl = d.getElementById('timeSlider');
   const max = parseInt(sl.max,10);
   check(max > 24*10, 'slider spans the GFS horizon: max idx '+max);
   sl.value = String(max); sl.dispatchEvent(new w.Event('input'));
-  await sleep(100);
-  check(w.eval('state.rows') && d.getElementById('profileNotice').style.display === 'block' && d.getElementById('profileNotice').textContent.includes('GFS'), 'fallback to GFS beyond ICON-D2 horizon: '+d.getElementById('profileNotice').textContent);
-  check(d.querySelector('#modelChips .model-chip.nodata'), 'ICON-D2 chip marked as no data');
-
-  // step back and keyboard
-  sl.value = String(parseInt(sl.min,10)+5); sl.dispatchEvent(new w.Event('input'));
-  await sleep(60);
+  await sleep(120);
+  check(!chips().some(c=>c.k==='icon_d2') && chips().some(c=>c.k==='gfs_global' && /primary/.test(c.cls)), 'ICON-D2 chip gone beyond its horizon, GFS chip primary');
+  check(d.getElementById('profileNotice').style.display === 'block' && d.getElementById('profileNotice').textContent.includes('GFS'), 'fallback notice: '+d.getElementById('profileNotice').textContent);
+  check(d.querySelector('#modelList [data-model="icon_d2"]').closest('.model-row').textContent.includes('beyond horizon'), 'model list marks ICON-D2 beyond horizon');
+  // back: chip returns
+  d.querySelector('#dayChips [data-day="0"]').click();
+  await sleep(120);
+  check(chips().some(c=>c.k==='icon_d2' && /primary/.test(c.cls)), 'day chip jump restores ICON-D2 as primary');
   d.dispatchEvent(new w.KeyboardEvent('keydown', {key:'ArrowRight', bubbles:true}));
-  await sleep(60);
-  check(w.eval('state.timeIdx') === parseInt(sl.min,10)+6, 'arrow key steps the hour');
+  await sleep(80);
+  check(d.getElementById('timeStripLabel').textContent.length > 8, 'time strip label: '+d.getElementById('timeStripLabel').textContent);
 
-  // settings sheet and diagram switch
-  d.getElementById('settingsBtn').click();
-  d.getElementById('diagramTypeSelect').value = 'skewt'; d.getElementById('diagramTypeSelect').dispatchEvent(new w.Event('change'));
+  // make GFS primary via chip, remove via ×
+  d.querySelector('#modelChips [data-chip="gfs_global"]').click();
+  await sleep(150);
+  check(w.eval('state.primaryModel') === 'gfs_global' && d.getElementById('statStrip').textContent.includes('GFS'), 'comparison chip tap makes GFS primary');
+  d.querySelector('#modelChips [data-remove="gfs_global"]').click();
+  await sleep(150);
+  check(w.eval('state.selectedModels').join(',') === 'icon_d2' && w.eval('state.primaryModel') === 'icon_d2', '× removes GFS, ICON-D2 primary again');
+  // star in the list
+  d.querySelector('#modelList [data-primary="icon_eu"]').click();
+  for(let i=0;i<60 && d.getElementById('loadingOverlay').style.display !== 'none'; i++) await sleep(100);
+  await sleep(150);
+  check(w.eval('state.primaryModel') === 'icon_eu' && w.eval('state.selectedModels').includes('icon_eu'), 'star adds ICON-EU and makes it primary');
+
+  // diagram radios, theta-E, settings menu, side handle
+  const skew = d.querySelector('input[name=diagramType][value=skewt]'); skew.checked = true; skew.dispatchEvent(new w.Event('change'));
   await sleep(60);
-  check(w.eval('state.diagramType') === 'skewt' && JSON.parse(w.localStorage.getItem('sc_settings_v1')).diagramType === 'skewt', 'diagram type switched and persisted');
+  check(w.eval('state.diagramType') === 'skewt' && JSON.parse(w.localStorage.getItem('sc_settings_v1')).diagramType === 'skewt', 'diagram radio switched and persisted');
+  const te = d.querySelector('input[name=thetaE][value=on]'); te.checked = true; te.dispatchEvent(new w.Event('change'));
+  check(w.eval('state.showThetaE') === true, 'theta-E radio on');
+  d.getElementById('settingsBtn').click();
+  check(d.getElementById('settingsMenu').style.display === 'block', 'hamburger menu opens');
   d.getElementById('themeBtn').click();
   check(d.documentElement.dataset.theme === '', 'theme toggled to dark');
-  d.getElementById('settingsClose').click();
+  d.body.click();
+  check(d.getElementById('settingsMenu').style.display === 'none', 'menu closes on outside click');
+  d.getElementById('sideHandle').click();
+  check(d.body.classList.contains('side-collapsed'), 'side panel collapses');
+  d.getElementById('sideHandle').click();
+  check(!d.body.classList.contains('side-collapsed'), 'side panel reopens');
 
-  // share link + reload from hash
+  // share link, session, export, info modal
   const url = w.eval('buildShareUrl()');
-  check(/#loc=46\.96/.test(url) && /models=icon_d2%2Cgfs_global/.test(url), 'share url: '+url);
-  const sess = JSON.parse(w.localStorage.getItem('sc_session_v1'));
-  check(sess && sess.selectedModels.length === 2, 'session persisted');
-
-  // export + info modal
+  check(/#loc=46\.96/.test(url) && /models=icon_d2%2Cicon_eu/.test(url) && /p=icon_eu/.test(url), 'share url: '+url);
+  const sess = JSON.parse(w.localStorage.getItem('sc_session_v2'));
+  check(sess && sess.loaded && sess.selectedModels.length === 2, 'session persisted');
   d.getElementById('exportPngBtn').click();
   d.querySelector('[data-info-key="cape"]').click();
   await sleep(30);
   check(d.getElementById('infoModalOverlay').style.display === 'flex' && d.getElementById('infoModalContent').textContent.includes('Model data note'), 'info modal opens with model note');
   d.getElementById('infoModalClose').click();
-
-  // back to location, keep state
-  d.getElementById('profileBackBtn').click();
-  check(d.body.dataset.screen === 'location', 'back to the location screen');
+  // move the map: load button asks for a reload
+  w.eval('PICK_MAP.setView([47.05, 9.45], 12)');
+  await sleep(900);
+  check(d.getElementById('loadBtn').textContent === 'Load' && w.eval('state.rows') != null, 'moving the map keeps the profile and re-arms the Load button');
 
   if(errors.length){ console.log('page errors:'); errors.forEach(e=>console.log('   ', String(e).split('\n')[0])); }
   check(errors.filter(e=>!/Not implemented|canvas|scrollIntoView/i.test(e)).length === 0, 'no page errors');
