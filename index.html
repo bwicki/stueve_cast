@@ -29,7 +29,37 @@
       <p id="subtitle">pick a place, then load a profile · <span id="versionStamp"></span></p>
       <span id="printUrl" class="print-only"></span>
     </div>
-    <img class="header-logo" alt="Wicki Partners Ballonteam" src="img/wicki-logo.png">
+    <div class="header-right">
+    <div class="head-actions">
+      <button class="reset-btn icon-btn" id="inspectLockBtn" title="Lock touch inspect mode (one finger reads values, no page scroll)">✛</button>
+      <button class="reset-btn icon-btn" id="shareBtn" title="Share link (L)">🔗</button>
+      <button class="reset-btn icon-btn" id="exportPngBtn" title="Export / share chart as PNG (E)">⬇</button>
+      <button class="reset-btn icon-btn" id="printBtn" title="Print (P)">🖨</button>
+      <div class="menu-wrap">
+        <button class="reset-btn icon-btn" id="settingsBtn" title="Settings" aria-haspopup="true">☰</button>
+        <div id="settingsMenu" class="menu" style="display:none;">
+          <div class="menu-row"><span>Altitude</span>
+            <select id="altitudeUnitSelect"><option value="amsl">m AMSL</option><option value="agl">m AGL</option><option value="ft">ft</option><option value="fl">FL</option></select></div>
+          <div class="menu-row ta-row" id="taEditLink" style="display:none;"><span>Transition altitude</span><span class="ta-link"><span id="taEditLinkValue"></span> ft · edit</span></div>
+          <div class="menu-row"><span>Speed</span>
+            <select id="speedUnitSelect"><option value="kmh">km/h</option><option value="kt">kt</option></select></div>
+          <div class="menu-row"><span>Wind column</span>
+            <select id="windDisplayModeSelect"><option value="barb">Barbs</option><option value="direction">Direction</option></select></div>
+          <div class="menu-row"><span>Level dots</span><button class="reset-btn mini" id="levelDotsBtn">On</button></div>
+          <div class="menu-row"><span>Cloud shading ≥ RH %</span><input id="cloudThreshInput" type="number" min="20" max="100" step="5" value="85"></div>
+          <div class="menu-row"><span>Play speed</span>
+            <select id="playSpeedSelect"><option value="0.5">½ h/s</option><option value="1" selected>1 h/s</option><option value="2">2 h/s</option><option value="4">4 h/s</option></select></div>
+          <div class="menu-row"><span>Theme</span><button class="reset-btn mini" id="themeBtn">Dark</button></div>
+          <div class="menu-row"><span>Open-Meteo key</span><input id="apiKeyInput" type="text" placeholder="free tier" autocomplete="off"></div>
+          <div class="menu-row"><span id="callsToday" class="dim"></span><button class="reset-btn mini" id="refreshBtn">↻ Reload data</button></div>
+          <div class="menu-row"><span>Display defaults</span><button class="reset-btn mini" id="resetConfigBtn">Reset</button></div>
+          <div class="menu-row"><span class="dim">← → hour · space play · E png · L link · P print · T theme</span></div>
+          <div class="menu-row"><button class="reset-btn mini" id="aboutBtn">ℹ About / license</button></div>
+        </div>
+      </div>
+    </div>
+      <img class="header-logo" alt="Wicki Partners Ballonteam" src="img/wicki-logo.png">
+    </div>
   </header>
 
   <div id="workspace">
@@ -109,34 +139,6 @@
       <div id="loadingOverlay" class="loading" style="display:none;"><div class="spinner"></div><div id="loadingMsg">Loading…</div></div>
       <div class="toolbar">
         <div id="modelChips" class="chip-row" title="Models that cover this place and hour: tap to add or remove"></div>
-        <div class="head-actions">
-          <button class="reset-btn icon-btn" id="inspectLockBtn" title="Lock touch inspect mode (one finger reads values, no page scroll)">✛</button>
-          <button class="reset-btn icon-btn" id="shareBtn" title="Share link (L)">🔗</button>
-          <button class="reset-btn icon-btn" id="exportPngBtn" title="Export / share chart as PNG (E)">⬇</button>
-          <button class="reset-btn icon-btn" id="printBtn" title="Print (P)">🖨</button>
-          <div class="menu-wrap">
-            <button class="reset-btn icon-btn" id="settingsBtn" title="Settings" aria-haspopup="true">☰</button>
-            <div id="settingsMenu" class="menu" style="display:none;">
-              <div class="menu-row"><span>Altitude</span>
-                <select id="altitudeUnitSelect"><option value="amsl">m AMSL</option><option value="agl">m AGL</option><option value="ft">ft</option><option value="fl">FL</option></select></div>
-              <div class="menu-row ta-row" id="taEditLink" style="display:none;"><span>Transition altitude</span><span class="ta-link"><span id="taEditLinkValue"></span> ft · edit</span></div>
-              <div class="menu-row"><span>Speed</span>
-                <select id="speedUnitSelect"><option value="kmh">km/h</option><option value="kt">kt</option></select></div>
-              <div class="menu-row"><span>Wind column</span>
-                <select id="windDisplayModeSelect"><option value="barb">Barbs</option><option value="direction">Direction</option></select></div>
-              <div class="menu-row"><span>Level dots</span><button class="reset-btn mini" id="levelDotsBtn">On</button></div>
-              <div class="menu-row"><span>Cloud shading ≥ RH %</span><input id="cloudThreshInput" type="number" min="20" max="100" step="5" value="85"></div>
-              <div class="menu-row"><span>Play speed</span>
-                <select id="playSpeedSelect"><option value="0.5">½ h/s</option><option value="1" selected>1 h/s</option><option value="2">2 h/s</option><option value="4">4 h/s</option></select></div>
-              <div class="menu-row"><span>Theme</span><button class="reset-btn mini" id="themeBtn">Dark</button></div>
-              <div class="menu-row"><span>Open-Meteo key</span><input id="apiKeyInput" type="text" placeholder="free tier" autocomplete="off"></div>
-              <div class="menu-row"><span id="callsToday" class="dim"></span><button class="reset-btn mini" id="refreshBtn">↻ Reload data</button></div>
-              <div class="menu-row"><span>Display defaults</span><button class="reset-btn mini" id="resetConfigBtn">Reset</button></div>
-              <div class="menu-row"><span class="dim">← → hour · space play · E png · L link · P print · T theme</span></div>
-              <div class="menu-row"><button class="reset-btn mini" id="aboutBtn">ℹ About / license</button></div>
-            </div>
-          </div>
-        </div>
       </div>
       <div class="diagram-controls">
         <div class="seg" role="radiogroup" aria-label="Diagram type">
@@ -220,15 +222,15 @@
     <aside id="rightCol">
       <div class="section-title">Profile facts</div>
       <div class="stat-strip dense" id="statStrip"></div>
-      <div class="section-title">Surface &amp; model diagnostics <span class="dim">this hour</span></div>
-      <div class="stat-strip dense" id="diagStrip"></div>
-      <div class="section-title">Profile analytics</div>
-      <div class="stat-strip dense" id="thermoStrip"></div>
       <div class="section-title">Analytical comments</div>
       <div id="analyticalComments">
         <button class="stat-info-btn" id="commentsInfoBtn" data-info-key="analyticalComments">i</button>
         <div id="analyticalCommentsList"></div>
       </div>
+      <div class="section-title">Surface &amp; model diagnostics <span class="dim">this hour</span></div>
+      <div class="stat-strip dense" id="diagStrip"></div>
+      <div class="section-title">Profile analytics</div>
+      <div class="stat-strip dense" id="thermoStrip"></div>
       <div class="attribution">
         Weather data by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0) ·
         maps © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors,

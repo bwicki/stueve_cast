@@ -181,7 +181,8 @@ const sleep = ms => new Promise(r=>setTimeout(r, ms));
   check(d.getElementById('diagStrip').textContent.includes('CAPE') && d.getElementById('statStrip').textContent.includes('ICON-D2'), 'diagnostics and facts strips rendered');
   check(d.getElementById('analyticalCommentsList').children.length >= 3, 'analytical comments rendered');
   check(d.getElementById('windPanelHandle').style.display === 'flex', 'wind panel handle visible');
-  check(d.querySelectorAll('#modelChips .head-actions').length === 0 && d.querySelector('.toolbar .head-actions'), 'action buttons outside the chip row');
+  check(d.querySelector('header .head-actions') && !d.querySelector('.toolbar .head-actions'), 'action buttons in the header, chip row full width');
+  check(Array.from(d.querySelectorAll('#rightCol .section-title'))[1].textContent.startsWith('Analytical'), 'analytical comments second in the right column');
 
   // avg chip
   const avgChip = d.querySelector('#modelChips [data-avg]');

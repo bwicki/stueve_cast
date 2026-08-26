@@ -2,7 +2,7 @@
 // Loaded last; relies on the globals from core.js, info.js, analytics.js,
 // draw.js, models.js and openmeteo.js (classic scripts sharing one scope).
 
-const APP_VERSION = 'v0.11.5 (2026-08-25)';
+const APP_VERSION = 'v0.12.0 (2026-08-25)';
 const MAX_TOTAL = 3; // models drawn at once (primary + comparisons)
 const SESSION_KEY = 'sc_session_v2';
 const SETTINGS_KEY = 'sc_settings_v1';

@@ -67,13 +67,6 @@ function layoutChart(rows){
     cursorOverlay.style.width = cssWidth+'px';
     cursorOverlay.style.height = cssHeight+'px';
   }
-  const altMinEl = document.getElementById('altRangeMin'), altMaxEl = document.getElementById('altRangeMax');
-  if(altMinEl){
-    const trackH = document.getElementById('altRangeTrack').clientHeight;
-    altMinEl.style.height = trackH+'px';
-    altMaxEl.style.height = trackH+'px';
-    updateAltRangeFill();
-  }
   ctx.setTransform(dpr,0,0,dpr,0,0);
 
   const windRowsAll = activeWindRows(rows);
@@ -93,6 +86,20 @@ function layoutChart(rows){
         : {left:135, right: hasWind ? (172 + extraSpeedW) : 34, top:48, bottom:44});
   const plotW = cssWidth - pad.left - pad.right;
   const plotH = cssHeight - pad.top - pad.bottom;
+
+  // Altitude zoom sliders: the track covers exactly the plot area (from the
+  // top of the plot down to the x-axis), not the canvas padding below it.
+  const altMinEl = document.getElementById('altRangeMin'), altMaxEl = document.getElementById('altRangeMax');
+  const trackEl = document.getElementById('altRangeTrack');
+  if(altMinEl && trackEl){
+    trackEl.style.position = 'absolute';
+    trackEl.style.top = pad.top+'px';
+    trackEl.style.height = plotH+'px';
+    trackEl.style.flex = 'none';
+    altMinEl.style.height = plotH+'px';
+    altMaxEl.style.height = plotH+'px';
+    updateAltRangeFill();
+  }
 
   // wind sub-panels, laid out to the right of the main plot
   const speedX0 = pad.left + plotW + (printMode ? 14 : (compact ? 12 : 20));

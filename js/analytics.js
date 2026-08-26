@@ -39,7 +39,7 @@ function renderThermo(rows){
     ['freezeLevel', 'Freezing level', t.freezeAlt!=null ? formatAltitude(t.freezeAlt, groundAltM) : 'not in sounding'],
     ['tropopause', 'Tropopause', t.tropoAlt!=null ? formatAltitude(t.tropoAlt, groundAltM) : 'not reached'],
     ['thunderstorm', 'Thunderstorm chance (est.)', stormPct!=null ? stormPct+'% (K='+Math.round(k)+')' : 'sounding too shallow'],
-    ['cloudCover', 'Cloud cover (est.)', `${cloudPct}% ${octasToMetar(cloudPctToOctas(cloudPct))} · ${cloudPctToOctas(cloudPct)}/8 <span style="font-size:0.75em;">octas</span>`],
+    ['cloudCover', 'Cloud cover (est.)', `${cloudPct}% ${octasToMetar(cloudPctToOctas(cloudPct))} · ${cloudPctToOctas(cloudPct)}/8`],
     ['shear', '0–6 km bulk shear', shearKt!=null ? Math.round(ktToDisplayUnit(shearKt))+' '+speedUnitLabel() : 'not enough wind data'],
     ['inversions', 'Inversions', formatLayers(invLayers)],
     ['isothermal', 'Isothermal layers', formatLayers(isoLayers)],
